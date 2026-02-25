@@ -2,8 +2,11 @@
 name = "uika-runtime"
 version = "0.1.0"
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Safe Rust runtime for uika (object refs, lifecycle, dynamic calls)"
 
 [dependencies]
-uika-ffi = { path = "../uika-ffi" }
+uika-ffi = { version = "0.1.0", path = "../uika-ffi" }
 glam = "0.29"
 inventory = "0.3"

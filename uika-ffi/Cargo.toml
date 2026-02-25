@@ -2,8 +2,9 @@
 name = "uika-ffi"
 version = "0.1.0"
 edition.workspace = true
-
-# Defines #[repr(C)] types, handle types, and API table structure.
+license.workspace = true
+repository.workspace = true
+description = "FFI types and API table definitions for uika"
 
 [dependencies]
-uika-ue-flags = { path = "../uika-ue-flags" }
+uika-ue-flags = { version = "0.1.0", path = "../uika-ue-flags" }
