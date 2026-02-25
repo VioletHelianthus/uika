@@ -12,7 +12,7 @@ uika-ffi = { version = "0.1.0", path = "../uika-ffi" }
 glam = "0.29"
 
 [features]
-default = ["core"]
+default = []
 core = []
 engine = ["core"]
 physics-core = ["engine"]
