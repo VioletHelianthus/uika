@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "uika-ue-flags",
+    "uika-ffi",
+    "uika-runtime",
+    "uika-macros",
+    "uika-codegen",
+    "uika-cli",
+    "uika-bindings",
+    "uika",
+    "example_game",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"

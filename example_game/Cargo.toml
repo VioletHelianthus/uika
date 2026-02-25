@@ -1,0 +1,11 @@
+[package]
+name = "example-game"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+uika = { path = "../uika", features = ["engine"] }
+glam = "0.29"

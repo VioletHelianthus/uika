@@ -1,0 +1,12 @@
+[package]
+name = "uika-cli"
+version = "0.1.0"
+edition.workspace = true
+build = "build.rs"
+include = ["src/**", "build.rs", "Cargo.toml", "ue_plugin_embed/**"]
+
+[dependencies]
+uika-codegen = { path = "../uika-codegen" }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"

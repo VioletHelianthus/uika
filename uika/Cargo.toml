@@ -1,0 +1,27 @@
+[package]
+name = "uika"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+uika-ffi = { path = "../uika-ffi" }
+uika-runtime = { path = "../uika-runtime" }
+uika-macros = { path = "../uika-macros" }
+uika-bindings = { path = "../uika-bindings", default-features = false }
+uika-ue-flags = { path = "../uika-ue-flags" }
+glam = "0.29"
+inventory = "0.3"
+
+[features]
+default = ["core", "engine"]
+core = ["uika-bindings/core"]
+engine = ["core", "uika-bindings/engine"]
+physics-core = ["engine", "uika-bindings/physics-core"]
+input = ["core", "uika-bindings/input"]
+slate = ["core", "uika-bindings/slate"]
+umg = ["slate", "uika-bindings/umg"]
+niagara = ["engine", "uika-bindings/niagara"]
+gameplay-abilities = ["engine", "uika-bindings/gameplay-abilities"]
+level-sequence = ["engine", "uika-bindings/level-sequence"]
+cinematic = ["engine", "uika-bindings/cinematic"]
+movie = ["engine", "uika-bindings/movie"]

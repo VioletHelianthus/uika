@@ -1,0 +1,5 @@
+# All generated bindings in src/ are gitignored.
+# Only lib.rs is tracked as the crate entry point.
+/src/*
+!/src/lib.rs
+!/src/manual/

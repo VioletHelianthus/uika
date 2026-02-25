@@ -1,0 +1,9 @@
+[package]
+name = "uika-runtime"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+uika-ffi = { path = "../uika-ffi" }
+glam = "0.29"
+inventory = "0.3"

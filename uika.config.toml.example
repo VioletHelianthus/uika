@@ -1,0 +1,89 @@
+# Uika project configuration
+# Copy this file to uika.config.toml and adjust paths for your environment.
+
+[ue]
+# Path to the Unreal Engine installation root.
+# This directory should contain Engine/, GenerateProjectFiles.bat, etc.
+engine_path = "C:/Program Files/Epic Games/UE_5.7"
+
+[project]
+# Path to the UE project directory (relative to repo root).
+# Defaults to "." if omitted.
+path = "saki"
+
+[build]
+# cdylib crate to build (default: example-game for uika development)
+crate_name = "example-game"
+
+# --- Codegen configuration ---
+
+[codegen]
+features = ["core", "engine"]
+
+[codegen.paths]
+uht_input = "generated/uht"
+rust_out = "uika-bindings/src"
+cpp_out = "ue_plugin/Uika/Source/Uika/Generated"
+
+[codegen.modules]
+# UE Package name = { module = "rust_module", feature = "cargo_feature" }
+CoreUObject = { module = "core_ue", feature = "core" }
+Engine = { module = "engine", feature = "engine" }
+PhysicsCore = { module = "physics_core", feature = "physics-core" }
+InputCore = { module = "input_core", feature = "input" }
+SlateCore = { module = "slate_core", feature = "slate" }
+Slate = { module = "slate", feature = "slate" }
+UMG = { module = "umg", feature = "umg" }
+Niagara = { module = "niagara", feature = "niagara" }
+GameplayAbilities = { module = "gameplay_abilities", feature = "gameplay-abilities" }
+LevelSequence = { module = "level_sequence", feature = "level-sequence" }
+CinematicCamera = { module = "cinematic_camera", feature = "cinematic" }
+MovieScene = { module = "movie_scene", feature = "movie" }
+MovieSceneTracks = { module = "movie_scene_tracks", feature = "movie" }
+
+[codegen.blocklist]
+classes = [
+    "BlueprintTypeConversions",
+    "InstancedStaticMeshComponent",
+    "InstancedSkinnedMeshComponent",
+    "HierarchicalInstancedStaticMeshComponent",
+    "VisualLoggerKismetLibrary",
+    "PluginBlueprintLibrary",
+    "MeshVertexPainterKismetLibrary",
+    "FieldNotificationLibrary",
+    "WorldPartitionBlueprintLibrary",
+    "BlueprintMapLibrary",
+    "BlueprintSetLibrary",
+    "KismetArrayLibrary",
+    "MaterialExpressionDataDrivenShaderPlatformInfoSwitch",
+]
+structs = [
+    "ConstraintInstanceAccessor",
+]
+functions = [
+    "AnimMontage.IsValidAdditiveSlot",
+    "GameplayStatics.BlueprintSuggestProjectileVelocity",
+    "KismetSystemLibrary.GetEnumTopLevelAssetPath",
+    "KismetSystemLibrary.GetStructTopLevelAssetPath",
+    "KismetSystemLibrary.RaiseScriptError",
+    "KismetSystemLibrary.StackTrace",
+    "MaterialInstanceConstant.K2_GetScalarParameterValue",
+    "MaterialInstanceConstant.K2_GetTextureCollectionParameterValue",
+    "MaterialInstanceConstant.K2_GetTextureParameterValue",
+    "MaterialInstanceConstant.K2_GetVectorParameterValue",
+    "ParticleSystem.ContainsEmitterType",
+    "PhysicsConstraintComponent.IsProjectionEnabled",
+    "PlanarReflection.OnInterpToggle",
+    "SceneCapture2D.OnInterpToggle",
+    "SoundConcurrency.SetMaxCount",
+    "SplineComponent.PopulateFromLegacy",
+    "SpotLight.SetInnerConeAngle",
+    "SpotLight.SetOuterConeAngle",
+    "Texture.Blueprint_GetBuiltTextureSize",
+    "Texture.Blueprint_GetMemorySize",
+    "Texture.Blueprint_GetTextureSourceDiskAndMemorySize",
+    "Texture.Blueprint_GetTextureSourceIdString",
+    "Texture.ComputeTextureSourceChannelMinMax",
+    "Texture2D.Blueprint_GetSizeX",
+    "Texture2D.Blueprint_GetSizeY",
+]

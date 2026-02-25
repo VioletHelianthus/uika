@@ -1,0 +1,23 @@
+[package]
+name = "uika-bindings"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+uika-runtime = { path = "../uika-runtime" }
+uika-ffi = { path = "../uika-ffi" }
+glam = "0.29"
+
+[features]
+default = ["core"]
+core = []
+engine = ["core"]
+physics-core = ["engine"]
+input = ["core"]
+slate = ["core"]
+umg = ["slate"]
+niagara = ["engine"]
+gameplay-abilities = ["engine"]
+level-sequence = ["engine"]
+cinematic = ["engine"]
+movie = ["engine"]

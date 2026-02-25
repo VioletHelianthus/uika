@@ -1,0 +1,9 @@
+[package]
+name = "uika-ffi"
+version = "0.1.0"
+edition.workspace = true
+
+# Defines #[repr(C)] types, handle types, and API table structure.
+
+[dependencies]
+uika-ue-flags = { path = "../uika-ue-flags" }
