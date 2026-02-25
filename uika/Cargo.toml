@@ -16,7 +16,7 @@ glam = "0.29"
 inventory = "0.3"
 
 [features]
-default = ["core", "engine"]
+default = []
 core = ["uika-bindings/core"]
 engine = ["core", "uika-bindings/engine"]
 physics-core = ["engine", "uika-bindings/physics-core"]
