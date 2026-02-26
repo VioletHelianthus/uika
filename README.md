@@ -6,118 +6,10 @@ Uika lets you write Unreal Engine gameplay in Rust. Your Rust code compiles to a
 
 > **⚠️ Early Stage Project** — Uika is under active development and **not ready for production use**. APIs will change without notice, documentation is incomplete, and many UE features are not yet covered. Contributions and feedback are welcome, but please do not use this for shipping projects.
 
-## Highlights
-
-- **Define UE classes in Rust** — `#[uclass]`, `#[ufunction]`, `#[uproperty]` proc macros with full Blueprint integration
-- **Type-safe UE API access** — generated bindings for 12+ UE modules with idiomatic Rust signatures
-- **Two-tier object lifecycle** — `UObjectRef<T>` (lightweight handle) and `Pinned<T>` (RAII GC root) with no global registry overhead
-- **Hot reload** — `Uika.Reload` console command swaps your DLL without restarting the editor
-- **Dual-path function calling** — direct C++ wrapper calls (99% path) with reflection fallback for Blueprint-defined functions
-- **Cargo features** — opt into only the UE modules you need (`core`, `engine`, `physics-core`, `umg`, `niagara`, etc.)
 
 ## Example
 
-A complete game in Rust — top-down gem collector with score, countdown timer, and HUD:
-
-```rust
-use uika::{uclass, uclass_impl};
-use uika::runtime::{ulog, Checked, OwnedStruct, UObjectRef, UikaResult, LOG_DISPLAY};
-use uika::bindings::core_ue::{FTransform, FRotator, FRotatorExt};
-use uika::bindings::engine::*;
-use uika::bindings::manual::world_ext::WorldSpawnExt;
-use uika::runtime::Transform;
-use glam::{DQuat, DVec3};
-
-#[uclass(parent = DefaultPawn)]
-pub struct GemCollectorPawn {
-    #[uproperty(BlueprintReadWrite)]
-    score: i32,
-
-    #[uproperty(BlueprintReadWrite, default = 400.0)]
-    move_speed: f32,
-
-    #[uproperty(BlueprintReadWrite, default = 60.0)]
-    time_remaining: f32,
-
-    // Rust-private fields (not exposed to UE)
-    game_over: bool,
-}
-
-#[uclass_impl]
-impl GemCollectorPawn {
-    #[ufunction(Override)]
-    fn receive_begin_play(&mut self) {
-        ulog!(LOG_DISPLAY, "Game started!");
-    }
-
-    #[ufunction(Override)]
-    fn receive_tick(&mut self, delta_seconds: f32) {
-        let time = (self.time_remaining() - delta_seconds).max(0.0);
-        self.set_time_remaining(time);
-        if time <= 0.0 {
-            self.set_game_over(true);
-            ulog!(LOG_DISPLAY, "Game Over! Final score: {}", self.score());
-        }
-    }
-
-    #[ufunction(BlueprintCallable)]
-    fn get_score(&self) -> i32 {
-        self.score()
-    }
-}
-```
-
 See [`example_game/src/game_demo.rs`](example_game/src/game_demo.rs) for the full working demo.
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────┐
-│                    Your Rust Code                     │
-│            (cdylib using uika crate)                  │
-├──────────────────────────────────────────────────────┤
-│  uika              │  uika-bindings (generated)       │
-│  - entry!() macro  │  - Class/struct/enum bindings     │
-│  - prelude         │  - Property getters/setters       │
-│  - re-exports      │  - Function wrappers              │
-├────────────────────┼──────────────────────────────────┤
-│  uika-runtime      │  uika-macros                      │
-│  - UObjectRef<T>   │  - #[uclass]                      │
-│  - Pinned<T>       │  - #[ufunction]                   │
-│  - DynamicCall     │  - #[uproperty]                   │
-│  - Containers      │  - #[component]                   │
-├────────────────────┴──────────────────────────────────┤
-│  uika-ffi          │  uika-ue-flags                    │
-│  - #[repr(C)]      │  - CPF_*, FUNC_*, CLASS_*         │
-│  - UikaApiTable    │    flag constants                  │
-╞══════════════════════════════════════════════════════╡
-│              FFI boundary (func_table)                │
-├──────────────────────────────────────────────────────┤
-│  UE C++ Plugin (ue_plugin/Uika/)                      │
-│  - DLL loading, API table, delegate proxy             │
-│  - Generated C++ wrappers (direct call path)          │
-│  - Reified class support (UUikaReifiedClass)          │
-├──────────────────────────────────────────────────────┤
-│  UHT Exporter (ue_plugin/UikaGenerator/)              │
-│  - C# plugin for Unreal Header Tool                   │
-│  - Exports reflection data to JSON                    │
-├──────────────────────────────────────────────────────┤
-│              Unreal Engine 5.7+                        │
-└──────────────────────────────────────────────────────┘
-```
-
-### Crate structure
-
-| Crate | Role |
-|-------|------|
-| **`uika`** | User-facing library. Re-exports everything, provides `entry!()` macro. |
-| **`uika-ffi`** | `#[repr(C)]` types, handle types, API table definition. Zero dependencies. |
-| **`uika-runtime`** | Safe Rust API: `UObjectRef<T>`, `Pinned<T>`, `DynamicCall`, containers, error types. All `unsafe` confined here. |
-| **`uika-macros`** | Proc macros: `#[uclass]`, `#[ufunction]`, `#[uproperty]`, `#[component]`. |
-| **`uika-codegen`** | Library: reads UHT JSON, generates Rust bindings + C++ wrapper functions. |
-| **`uika-cli`** | CLI binary: `generate`, `setup`, `build`, `sync-plugin` commands. |
-| **`uika-bindings`** | Generated code (gitignored). All UE type bindings. |
-| **`uika-ue-flags`** | UE reflection flag constants shared across crates. |
 
 ## Getting Started
 
@@ -212,26 +104,6 @@ cargo run -p uika-cli -- build --from 2
 # Just regenerate bindings
 cargo run -p uika-cli -- generate
 ```
-
-## Cargo Features
-
-Only pull in the UE modules you need:
-
-| Feature | UE Module | Depends on |
-|---------|-----------|------------|
-| `core` | CoreUObject | — |
-| `engine` | Engine | `core` |
-| `physics-core` | PhysicsCore | `engine` |
-| `input` | InputCore | `core` |
-| `slate` | SlateCore + Slate | `core` |
-| `umg` | UMG | `slate` |
-| `niagara` | Niagara | `engine` |
-| `gameplay-abilities` | GameplayAbilities | `engine` |
-| `level-sequence` | LevelSequence | `engine` |
-| `cinematic` | CinematicCamera | `engine` |
-| `movie` | MovieScene + MovieSceneTracks | `engine` |
-
-Default features: `core`, `engine`.
 
 ## Key Concepts
 
