@@ -2,6 +2,6 @@
 name = "uika-ue-flags"
 version = "0.1.0"
 edition.workspace = true
-
-# Zero external dependencies.
-# UE reflection flag constants (CPF_*, FUNC_*, CLASS_*) shared by uika-ffi and uika-codegen.
+license.workspace = true
+repository.workspace = true
+description = "Unreal Engine reflection flag constants for uika"

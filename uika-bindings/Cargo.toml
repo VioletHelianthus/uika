@@ -2,14 +2,17 @@
 name = "uika-bindings"
 version = "0.1.0"
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Generated UE type bindings and manual extensions for uika"
 
 [dependencies]
-uika-runtime = { path = "../uika-runtime" }
-uika-ffi = { path = "../uika-ffi" }
+uika-runtime = { version = "0.1.0", path = "../uika-runtime" }
+uika-ffi = { version = "0.1.0", path = "../uika-ffi" }
 glam = "0.29"
 
 [features]
-default = ["core"]
+default = []
 core = []
 engine = ["core"]
 physics-core = ["engine"]

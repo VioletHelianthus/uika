@@ -1,0 +1,22 @@
+{
+    "FileVersion": 3,
+    "Version": 1,
+    "VersionName": "0.1.0",
+    "FriendlyName": "UikaGenerator",
+    "Description": "UHT JSON exporter for Uika codegen",
+    "Category": "Scripting",
+    "CreatedBy": "",
+    "CreatedByURL": "",
+    "DocsURL": "",
+    "MarketplaceURL": "",
+    "CanContainContent": false,
+    "IsBetaVersion": true,
+    "Installed": false,
+    "Modules": [
+        {
+            "Name": "UikaGenerator",
+            "Type": "Editor",
+            "LoadingPhase": "PostDefault"
+        }
+    ]
+}
