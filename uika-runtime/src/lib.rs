@@ -22,7 +22,7 @@ pub mod world;
 // Re-export the primary public API surface.
 pub use api::{api, init_api};
 pub use error::{check_ffi, check_ffi_ctx, ffi_infallible, ffi_infallible_ctx, UikaError, UikaResult};
-pub use traits::{UeClass, UeStruct, UeEnum, UeHandle, ValidHandle};
+pub use traits::{UeClass, UeStruct, UeEnum, UeHandle, ValidHandle, HasParent};
 pub use object_ref::{Checked, UObjectRef};
 pub use struct_ref::UStructRef;
 pub use pinned::Pinned;

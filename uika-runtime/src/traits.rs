@@ -26,6 +26,18 @@ pub trait UeEnum: 'static {
     type Repr: Copy;
 }
 
+/// Declares the immediate UE parent class for codegen-exported classes.
+///
+/// Enables blanket `Deref` impls on `UObjectRef<T>`, `Checked<T>`, and
+/// `Pinned<T>` so inherited methods resolve automatically through the
+/// Deref chain instead of being flattened into each child's Ext trait.
+///
+/// Codegen generates `impl HasParent for Pawn { type Parent = Actor; }` etc.
+/// Root classes (e.g., `UObject`) do NOT implement this trait.
+pub trait HasParent: UeClass {
+    type Parent: UeClass;
+}
+
 /// Trait for types that hold a UObject handle and can validate it.
 ///
 /// Both `UObjectRef<T>` and `Pinned<T>` implement this, enabling fallible

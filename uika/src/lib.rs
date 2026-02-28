@@ -156,14 +156,14 @@ pub fn shutdown() {
 #[macro_export]
 macro_rules! entry {
     () => {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn uika_init(
             api_table: *const $crate::ffi::UikaApiTable,
         ) -> *const $crate::ffi::UikaRustCallbacks {
             $crate::init(api_table)
         }
 
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn uika_shutdown() {
             $crate::shutdown()
         }

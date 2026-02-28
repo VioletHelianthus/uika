@@ -5,13 +5,14 @@
 // to guarantee liveness.
 
 use std::marker::PhantomData;
+use std::ops::Deref;
 
 use uika_ffi::{UClassHandle, UObjectHandle};
 
 use crate::api::api;
 use crate::error::{check_ffi, UikaError, UikaResult};
 use crate::pinned::Pinned;
-use crate::traits::{UeClass, UeHandle, ValidHandle};
+use crate::traits::{HasParent, UeClass, UeHandle, ValidHandle};
 
 /// A typed, non-owning reference to a UObject.
 ///
@@ -117,6 +118,31 @@ impl<T: UeClass> UObjectRef<T> {
         let h = self.checked()?.raw();
         Ok(unsafe { ((*api().core).get_outer)(h) })
     }
+
+    /// Check whether this object is an instance of `U` (or a subclass of `U`).
+    /// Returns `false` if the object has been destroyed.
+    #[inline]
+    pub fn is_a<U: UeClass>(&self) -> bool {
+        self.is_valid() && unsafe { ((*api().core).is_a)(self.handle, U::static_class()) }
+    }
+}
+
+impl<T: HasParent> UObjectRef<T> {
+    /// Infallible upcast to the parent class. Zero-cost (same handle).
+    #[inline]
+    pub fn upcast(self) -> UObjectRef<T::Parent> {
+        unsafe { UObjectRef::from_raw(self.handle) }
+    }
+}
+
+/// Blanket Deref: `UObjectRef<Child>` auto-derefs to `UObjectRef<Parent>`.
+/// Safe because `UObjectRef<T>` is `#[repr(transparent)]` over `UObjectHandle`.
+impl<T: HasParent> Deref for UObjectRef<T> {
+    type Target = UObjectRef<T::Parent>;
+    #[inline]
+    fn deref(&self) -> &UObjectRef<T::Parent> {
+        unsafe { &*(self as *const _ as *const UObjectRef<T::Parent>) }
+    }
 }
 
 impl<T: UeClass> UeHandle for UObjectRef<T> {
@@ -179,6 +205,40 @@ impl<T: UeClass> Checked<T> {
     #[inline]
     pub fn as_ref(&self) -> UObjectRef<T> {
         unsafe { UObjectRef::from_raw(self.handle) }
+    }
+
+    /// Check whether this object is an instance of `U` (or a subclass of `U`).
+    /// No validity check needed — already validated at `Checked` construction.
+    #[inline]
+    pub fn is_a<U: UeClass>(&self) -> bool {
+        unsafe { ((*api().core).is_a)(self.handle, U::static_class()) }
+    }
+
+    /// Cast to a different UClass type. Fails if not an instance of `U`.
+    pub fn cast<U: UeClass>(self) -> UikaResult<Checked<U>> {
+        if self.is_a::<U>() {
+            Ok(Checked::new_unchecked(self.handle))
+        } else {
+            Err(UikaError::InvalidCast)
+        }
+    }
+}
+
+impl<T: HasParent> Checked<T> {
+    /// Infallible upcast to the parent class. Zero-cost (same handle).
+    #[inline]
+    pub fn upcast(self) -> Checked<T::Parent> {
+        Checked::new_unchecked(self.handle)
+    }
+}
+
+/// Blanket Deref: `Checked<Child>` auto-derefs to `Checked<Parent>`.
+/// Safe because `Checked<T>` is `#[repr(transparent)]` over `UObjectHandle`.
+impl<T: HasParent> Deref for Checked<T> {
+    type Target = Checked<T::Parent>;
+    #[inline]
+    fn deref(&self) -> &Checked<T::Parent> {
+        unsafe { &*(self as *const _ as *const Checked<T::Parent>) }
     }
 }
 

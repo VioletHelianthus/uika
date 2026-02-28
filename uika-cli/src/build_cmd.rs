@@ -7,6 +7,21 @@ use std::time::Instant;
 
 use uika_codegen::config::UikaConfig;
 
+/// Canonicalize a path, stripping the `\\?\` extended-length prefix that
+/// Windows adds. UBT's .NET XML parser chokes on that prefix.
+fn canonical_no_prefix(path: &Path) -> PathBuf {
+    let abs = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    #[cfg(windows)]
+    {
+        // `canonicalize()` returns `\\?\C:\...` on Windows; strip the prefix.
+        let s = abs.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+    }
+    abs
+}
+
 /// Run the build pipeline.
 ///
 /// `config_path` is the path to uika.config.toml.
@@ -196,7 +211,7 @@ impl BuildContext {
 
         let target = self.editor_target();
         let uproject = self.uproject_path();
-        let uproject_abs = uproject.canonicalize().unwrap_or(uproject.clone());
+        let uproject_abs = canonical_no_prefix(&uproject);
 
         run_cmd(&[
             build_bat.to_str().unwrap(),
@@ -258,7 +273,7 @@ impl BuildContext {
 
         let target = self.editor_target();
         let uproject = self.uproject_path();
-        let uproject_abs = uproject.canonicalize().unwrap_or(uproject.clone());
+        let uproject_abs = canonical_no_prefix(&uproject);
 
         run_cmd(&[
             build_bat.to_str().unwrap(),

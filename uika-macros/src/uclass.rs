@@ -705,6 +705,13 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
         };
     };
 
+    // --- HasParent for the Deref chain on UObjectRef<T>, Checked<T>, Pinned<T> ---
+    let has_parent_impl = quote! {
+        impl ::uika::runtime::HasParent for #struct_name {
+            type Parent = #parent_path;
+        }
+    };
+
     // --- Deref to UObjectRef<Parent> for auto-deref to parent Ext trait methods ---
     let deref_impl = quote! {
         impl std::ops::Deref for #struct_name {
@@ -723,6 +730,7 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
         #rust_data_struct
         #static_handle
         #ue_class_impl
+        #has_parent_impl
         #parent_check
         #deref_impl
         #accessors_impl

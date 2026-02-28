@@ -4,64 +4,12 @@ use std::collections::HashSet;
 
 use crate::context::{CodegenContext, FuncEntry};
 use crate::defaults;
-use crate::naming::{escape_reserved, strip_bool_prefix, to_snake_case};
+use crate::naming::{escape_reserved, to_snake_case};
 use crate::schema::*;
 use crate::type_map::{self, ConversionKind, MappedType, ParamDirection};
 
 use super::delegates;
 use super::properties::{self, PropertyContext};
-
-/// Walk super_class links, returning ancestors from immediate parent to root.
-/// Stops at first class not in ctx.classes (e.g., UObject if CoreUObject disabled).
-fn ancestor_chain<'a>(class_name: &str, ctx: &'a CodegenContext) -> Vec<&'a str> {
-    let mut chain = Vec::new();
-    let mut current = class_name;
-    loop {
-        let class = match ctx.classes.get(current) {
-            Some(c) => c,
-            None => break,
-        };
-        match &class.super_class {
-            Some(parent) if ctx.classes.contains_key(parent.as_str()) => {
-                chain.push(parent.as_str());
-                current = parent;
-            }
-            _ => break,
-        }
-    }
-    chain
-}
-
-/// Compute the getter name for a property (mirrors logic in collect_deduped_properties).
-fn property_getter_name(prop: &PropertyInfo) -> String {
-    let mapped = type_map::map_property_type(
-        &prop.prop_type,
-        prop.class_name.as_deref(),
-        prop.struct_name.as_deref(),
-        prop.enum_name.as_deref(),
-        prop.enum_underlying_type.as_deref(),
-        prop.meta_class_name.as_deref(),
-        prop.interface_name.as_deref(),
-    );
-    let rust_name = if prop.prop_type == "BoolProperty" {
-        strip_bool_prefix(&prop.name)
-    } else {
-        to_snake_case(&prop.name)
-    };
-    let is_container = matches!(
-        mapped.rust_to_ffi,
-        ConversionKind::ContainerArray | ConversionKind::ContainerMap | ConversionKind::ContainerSet
-    );
-    let is_delegate = matches!(
-        mapped.rust_to_ffi,
-        ConversionKind::Delegate | ConversionKind::MulticastDelegate
-    );
-    if is_container || is_delegate {
-        rust_name
-    } else {
-        format!("get_{rust_name}")
-    }
-}
 
 /// Generate Rust code for a single UE class.
 pub fn generate_class(class: &ClassInfo, ctx: &CodegenContext) -> String {
@@ -105,10 +53,28 @@ pub fn generate_class(class: &ClassInfo, ctx: &CodegenContext) -> String {
          }}\n\n"
     ));
 
-    // Build ancestor chain for inheritance flattening
-    let ancestors = ancestor_chain(name, ctx);
+    // HasParent impl (must come before early-return — a class with no own
+    // members still needs HasParent for the Deref chain)
+    if let Some(parent) = &class.super_class {
+        if ctx.classes.contains_key(parent.as_str()) {
+            // Cfg-gate if parent is in a different module
+            let parent_class = ctx.classes.get(parent.as_str()).unwrap();
+            let parent_module = ctx.package_to_module.get(&parent_class.package)
+                .map(|s| s.as_str()).unwrap_or("");
+            if parent_module != current_module {
+                if let Some(feature) = ctx.feature_for_module(parent_module) {
+                    out.push_str(&format!("#[cfg(feature = \"{feature}\")]\n"));
+                }
+            }
+            out.push_str(&format!(
+                "impl uika_runtime::HasParent for {name} {{\n\
+                 \x20   type Parent = {parent};\n\
+                 }}\n\n"
+            ));
+        }
+    }
 
-    // Collect functions: own first, then ancestors (child wins on name collision)
+    // Collect own functions only (inherited methods are accessed via Deref chain)
     let mut seen_func_names: HashSet<String> = HashSet::new();
     let mut class_funcs: Vec<&FuncEntry> = Vec::new();
     for entry in ctx.func_table.iter().filter(|e| e.class_name == *name) {
@@ -116,81 +82,16 @@ pub fn generate_class(class: &ClassInfo, ctx: &CodegenContext) -> String {
             class_funcs.push(entry);
         }
     }
-    for ancestor in &ancestors {
-        for entry in ctx.func_table.iter().filter(|e| e.class_name == *ancestor) {
-            if seen_func_names.insert(entry.rust_func_name.clone()) {
-                class_funcs.push(entry);
-            }
-        }
-    }
 
-    // Collect property accessor names, deduplicating (own props first)
-    let (mut prop_names, mut deduped_props) = properties::collect_deduped_properties(&class.props, Some(ctx));
+    // Collect own property accessor names, deduplicating
+    let (mut prop_names, deduped_props) = properties::collect_deduped_properties(&class.props, Some(ctx));
 
-    // Add ancestor properties (child names already in prop_names take priority)
-    for ancestor_name in &ancestors {
-        if let Some(ancestor_class) = ctx.classes.get(*ancestor_name) {
-            let (_, ancestor_props) = properties::collect_deduped_properties(&ancestor_class.props, Some(ctx));
-            for prop in ancestor_props {
-                let getter_name = property_getter_name(prop);
-                if !prop_names.contains(&getter_name) {
-                    let rust_name = if prop.prop_type == "BoolProperty" {
-                        strip_bool_prefix(&prop.name)
-                    } else {
-                        to_snake_case(&prop.name)
-                    };
-                    let mapped = type_map::map_property_type(
-                        &prop.prop_type,
-                        prop.class_name.as_deref(),
-                        prop.struct_name.as_deref(),
-                        prop.enum_name.as_deref(),
-                        prop.enum_underlying_type.as_deref(),
-                        prop.meta_class_name.as_deref(),
-                        prop.interface_name.as_deref(),
-                    );
-                    let is_container = matches!(
-                        mapped.rust_to_ffi,
-                        ConversionKind::ContainerArray | ConversionKind::ContainerMap | ConversionKind::ContainerSet
-                    );
-                    let is_delegate = matches!(
-                        mapped.rust_to_ffi,
-                        ConversionKind::Delegate | ConversionKind::MulticastDelegate
-                    );
-                    prop_names.insert(getter_name);
-                    if !is_container && !is_delegate {
-                        prop_names.insert(format!("set_{rust_name}"));
-                    }
-                    deduped_props.push(prop);
-                }
-            }
-        }
-    }
-
-    // Collect delegate properties: own delegates first, then ancestors
+    // Collect own delegate properties
     let own_delegate_infos = delegates::collect_delegate_props(&class.props, name, ctx);
-    let mut seen_delegate_names: HashSet<String> = own_delegate_infos.iter()
-        .map(|d| d.rust_name.clone()).collect();
-    let mut inherited_delegate_infos = Vec::new();
 
-    for ancestor_name in &ancestors {
-        if let Some(ancestor_class) = ctx.classes.get(*ancestor_name) {
-            let ancestor_delegates = delegates::collect_delegate_props(
-                &ancestor_class.props, ancestor_name, ctx
-            );
-            for d in ancestor_delegates {
-                if seen_delegate_names.insert(d.rust_name.clone()) {
-                    inherited_delegate_infos.push(d);
-                }
-            }
-        }
-    }
-
-    // Note: own_delegate_infos is used first for struct generation, then extended
-    // with inherited delegates for trait decls/impls.
-
-    // Only generate extension trait if there are properties, functions, or delegates
+    // Only generate extension trait if there are own properties, functions, or delegates
     if deduped_props.is_empty() && class_funcs.is_empty()
-        && own_delegate_infos.is_empty() && inherited_delegate_infos.is_empty()
+        && own_delegate_infos.is_empty()
     {
         return out;
     }
@@ -228,13 +129,8 @@ pub fn generate_class(class: &ClassInfo, ctx: &CodegenContext) -> String {
         is_class: true,
     };
 
-    // Generate delegate wrapper structs only for own delegates
-    // (inherited delegate structs are defined in their declaring class file and accessible via `use super::*`)
+    // Generate delegate wrapper structs (own only)
     delegates::generate_delegate_structs(&mut out, &own_delegate_infos, name);
-
-    // Combine own + inherited delegates for trait decls/impls
-    let mut all_delegate_infos = own_delegate_infos;
-    all_delegate_infos.extend(inherited_delegate_infos);
 
     // Extension trait with ValidHandle supertrait — default impls work for both
     // Checked<T> and Pinned<T> (dispatch via handle()).
@@ -248,8 +144,8 @@ pub fn generate_class(class: &ClassInfo, ctx: &CodegenContext) -> String {
         properties::generate_property(&mut out, prop, &pctx, ctx, &suppress_setters);
     }
 
-    // Delegate accessor default impls (own + inherited)
-    delegates::generate_delegate_impls(&mut out, &all_delegate_infos);
+    // Delegate accessor default impls (own only)
+    delegates::generate_delegate_impls(&mut out, &own_delegate_infos);
 
     // Function wrapper default impls
     for entry in &class_funcs {

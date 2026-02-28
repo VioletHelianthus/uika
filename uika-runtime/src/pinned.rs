@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -15,7 +16,7 @@ use uika_ffi::UObjectHandle;
 use crate::api::api;
 use crate::error::{UikaError, UikaResult};
 use crate::object_ref::{Checked, UObjectRef};
-use crate::traits::{UeClass, UeHandle, ValidHandle};
+use crate::traits::{HasParent, UeClass, UeHandle, ValidHandle};
 
 // ---------------------------------------------------------------------------
 // Alive registry — maps UObject pointer → alive flag for fast checked_handle
@@ -57,6 +58,10 @@ pub fn clear_all() {
 ///
 /// Method calls on `Pinned<T>` use a local alive flag (~1-3 cycles) instead
 /// of an FFI `is_valid` call (~15-30 cycles) for validity checking.
+///
+/// `#[repr(C)]` guarantees deterministic layout so that the blanket Deref
+/// pointer cast (`&Pinned<T>` → `&Pinned<T::Parent>`) is sound.
+#[repr(C)]
 pub struct Pinned<T: UeClass> {
     handle: UObjectHandle,
     alive: Arc<AtomicBool>,
@@ -162,5 +167,19 @@ impl<T: UeClass> std::fmt::Debug for Pinned<T> {
             .field("handle", &self.handle)
             .field("alive", &self.is_alive())
             .finish()
+    }
+}
+
+/// Blanket Deref: `Pinned<Child>` auto-derefs to `Pinned<Parent>`.
+/// Safe because `Pinned<T>` is `#[repr(C)]` and `PhantomData` is zero-sized,
+/// so `Pinned<T>` and `Pinned<T::Parent>` have identical layout.
+///
+/// No `upcast()` on Pinned — it owns a GC root, so consuming would be unsound.
+/// Use Deref for borrowed access to parent methods instead.
+impl<T: HasParent> Deref for Pinned<T> {
+    type Target = Pinned<T::Parent>;
+    #[inline]
+    fn deref(&self) -> &Pinned<T::Parent> {
+        unsafe { &*(self as *const _ as *const Pinned<T::Parent>) }
     }
 }
