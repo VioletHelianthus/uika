@@ -299,7 +299,19 @@ impl BuildContext {
     fn step5_copy_dll(&self) {
         // Cargo converts hyphens to underscores in output filenames
         let dll_filename = format!("{}.dll", self.crate_name.replace('-', "_"));
-        let src = self.config_dir.join("target/release").join(&dll_filename);
+
+        // Cargo outputs to {cargo_workspace}/target/release/. Try CWD first
+        // (step 4 runs cargo from CWD), then fall back to config_dir.
+        let cwd_target = std::env::current_dir()
+            .unwrap_or_default()
+            .join("target/release")
+            .join(&dll_filename);
+        let config_target = self.config_dir.join("target/release").join(&dll_filename);
+        let src = if cwd_target.exists() {
+            cwd_target
+        } else {
+            config_target
+        };
 
         let dest_dir = self
             .project_path

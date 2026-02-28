@@ -10,7 +10,7 @@ pub mod filter;
 pub mod rust_gen;
 pub mod cpp_gen;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::config::UikaConfig;
 use crate::schema::{ClassesFile, EnumsFile, StructsFile};
@@ -24,13 +24,20 @@ pub fn run_generate(config_path: &Path) {
         .unwrap_or_else(|e| panic!("Failed to parse {}: {e}", config_path.display()));
     let codegen = &uika_config.codegen;
 
-    // Derive JSON paths from config
-    let uht_input = PathBuf::from(&codegen.paths.uht_input);
+    // Resolve paths relative to config file directory
+    let config_dir = config_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .canonicalize()
+        .unwrap_or_else(|e| panic!("Failed to canonicalize config dir: {e}"));
+
+    // Derive JSON paths from config (relative to config dir)
+    let uht_input = config_dir.join(&codegen.paths.uht_input);
     let classes_path = uht_input.join("uika_classes.json");
     let structs_path = uht_input.join("uika_structs.json");
     let enums_path = uht_input.join("uika_enums.json");
-    let rust_out = PathBuf::from(&codegen.paths.rust_out);
-    let cpp_out = PathBuf::from(&codegen.paths.cpp_out);
+    let rust_out = config_dir.join(&codegen.paths.rust_out);
+    let cpp_out = config_dir.join(&codegen.paths.cpp_out);
 
     eprintln!("uika-codegen: loading JSON...");
 

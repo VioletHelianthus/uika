@@ -93,6 +93,14 @@ pub fn generate_wrapper_file(entries: &[&FuncEntry], ctx: &CodegenContext) -> St
     out.push_str("#include <string>\n");
     out.push('\n');
 
+    // Suppress C4996 (deprecated API) warnings in generated wrappers.
+    // We bind all UHT-exported functions unconditionally; users can choose
+    // not to call the deprecated ones from Rust.
+    out.push_str("#ifdef _MSC_VER\n");
+    out.push_str("#pragma warning(push)\n");
+    out.push_str("#pragma warning(disable: 4996)\n");
+    out.push_str("#endif\n\n");
+
     // Forward declare the error code (guarded for Unity builds)
     out.push_str("#ifndef UIKA_ERROR_CODES_DEFINED\n");
     out.push_str("#define UIKA_ERROR_CODES_DEFINED\n");
@@ -104,6 +112,10 @@ pub fn generate_wrapper_file(entries: &[&FuncEntry], ctx: &CodegenContext) -> St
     for entry in entries {
         generate_wrapper_function(&mut out, entry, ctx);
     }
+
+    out.push_str("#ifdef _MSC_VER\n");
+    out.push_str("#pragma warning(pop)\n");
+    out.push_str("#endif\n");
 
     out
 }

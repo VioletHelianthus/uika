@@ -188,12 +188,14 @@ fn generate_enum_container_element(out: &mut String, name: &str, repr: &str) {
          \x20   const BUF_SIZE: u32 = std::mem::size_of::<{repr}>() as u32;\n\n\
          \x20   #[inline]\n\
          \x20   unsafe fn read_from_buf(buf: *const u8, _written: u32) -> Self {{\n\
-         \x20       std::mem::transmute::<{repr}, Self>((buf as *const {repr}).read_unaligned())\n\
+         \x20       unsafe {{ std::mem::transmute::<{repr}, Self>((buf as *const {repr}).read_unaligned()) }}\n\
          \x20   }}\n\n\
          \x20   #[inline]\n\
          \x20   unsafe fn write_to_buf(&self, buf: *mut u8) -> u32 {{\n\
-         \x20       let raw: {repr} = std::mem::transmute(*self);\n\
-         \x20       (buf as *mut {repr}).write_unaligned(raw);\n\
+         \x20       unsafe {{\n\
+         \x20           let raw: {repr} = std::mem::transmute(*self);\n\
+         \x20           (buf as *mut {repr}).write_unaligned(raw);\n\
+         \x20       }}\n\
          \x20       std::mem::size_of::<{repr}>() as u32\n\
          \x20   }}\n\
          }}\n"
@@ -207,11 +209,11 @@ fn generate_newtype_container_element(out: &mut String, name: &str, repr: &str) 
          \x20   const BUF_SIZE: u32 = std::mem::size_of::<{repr}>() as u32;\n\n\
          \x20   #[inline]\n\
          \x20   unsafe fn read_from_buf(buf: *const u8, _written: u32) -> Self {{\n\
-         \x20       Self((buf as *const {repr}).read_unaligned())\n\
+         \x20       unsafe {{ Self((buf as *const {repr}).read_unaligned()) }}\n\
          \x20   }}\n\n\
          \x20   #[inline]\n\
          \x20   unsafe fn write_to_buf(&self, buf: *mut u8) -> u32 {{\n\
-         \x20       (buf as *mut {repr}).write_unaligned(self.0);\n\
+         \x20       unsafe {{ (buf as *mut {repr}).write_unaligned(self.0) }};\n\
          \x20       std::mem::size_of::<{repr}>() as u32\n\
          \x20   }}\n\
          }}\n"
