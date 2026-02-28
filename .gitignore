@@ -5,18 +5,6 @@ Cargo.lock
 # Local config
 uika.config.toml
 
-# UE test project generated files
-test_project/Content/
-test_project/Binaries/
-test_project/Intermediate/
-test_project/Saved/
-test_project/DerivedDataCache/
-test_project/.vs/
-test_project/*.sln
-test_project/*.vcxproj*
-# Plugin junctions created by tools/build.py setup
-test_project/Plugins/
-
 # UE plugin build artifacts
 ue_plugin/**/Binaries/
 ue_plugin/**/Intermediate/
