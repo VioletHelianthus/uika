@@ -25,6 +25,10 @@ ue_plugin/Uika/Source/Uika/Generated/
 # VS solution (auto-generated)
 *.sln
 
+# Claude Code (local, not committed)
+CLAUDE.md
+.claude/
+
 # IDE
 .vscode/
 .idea/
