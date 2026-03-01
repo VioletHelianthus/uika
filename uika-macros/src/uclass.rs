@@ -349,18 +349,19 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
 
         // Getter (always generated)
         let getter_ident = format_ident!("{}", field_ident);
+        let getter_dispatch = format_ident!("property_{}", getter_fn);
         accessor_methods.push(quote! {
             pub fn #getter_ident(&self) -> #rust_ty {
                 static PROP: std::sync::OnceLock<::uika::ffi::FPropertyHandle> = std::sync::OnceLock::new();
                 let prop = *PROP.get_or_init(|| unsafe {
-                    ((*::uika::runtime::api().reflection).find_property)(
+                    ::uika::runtime::ffi_dispatch::reflection_find_property(
                         <Self as ::uika::runtime::UeClass>::static_class(),
                         [#(#ue_name_bytes),*].as_ptr(),
                         #ue_name_len,
                     )
                 });
                 let mut val: #rust_ty = #zero;
-                unsafe { ((*::uika::runtime::api().property).#getter_fn)(self.__obj, prop, &mut val); }
+                unsafe { ::uika::runtime::ffi_dispatch::#getter_dispatch(self.__obj, prop, &mut val); }
                 val
             }
         });
@@ -368,17 +369,18 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
         // Setter (only if not read-only)
         if !prop.args.blueprint_read_only {
             let setter_ident = format_ident!("set_{}", field_ident);
+            let setter_dispatch = format_ident!("property_{}", setter_fn);
             accessor_methods.push(quote! {
                 pub fn #setter_ident(&self, val: #rust_ty) {
                     static PROP: std::sync::OnceLock<::uika::ffi::FPropertyHandle> = std::sync::OnceLock::new();
                     let prop = *PROP.get_or_init(|| unsafe {
-                        ((*::uika::runtime::api().reflection).find_property)(
+                        ::uika::runtime::ffi_dispatch::reflection_find_property(
                             <Self as ::uika::runtime::UeClass>::static_class(),
                             [#(#ue_name_bytes),*].as_ptr(),
                             #ue_name_len,
                         )
                     });
-                    unsafe { ((*::uika::runtime::api().property).#setter_fn)(self.__obj, prop, val); }
+                    unsafe { ::uika::runtime::ffi_dispatch::#setter_dispatch(self.__obj, prop, val); }
                 }
             });
         }
@@ -411,12 +413,12 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
         accessor_methods.push(quote! {
             pub fn #field_ident(&self) -> ::uika::runtime::UikaResult<::uika::runtime::UObjectRef<#comp_type>> {
                 let h = unsafe {
-                    ((*::uika::runtime::api().reify).find_default_subobject)(
+                    ::uika::runtime::ffi_dispatch::reify_find_default_subobject(
                         self.__obj,
                         [#(#comp_name_bytes),*].as_ptr(), #comp_name_len,
                     )
                 };
-                if h.0.is_null() {
+                if h.is_null() {
                     return Err(::uika::runtime::UikaError::InvalidOperation(
                         concat!("subobject '", #comp_name, "' not found").into()
                     ));
@@ -435,7 +437,7 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
         pub fn from_obj(obj: ::uika::runtime::UObjectRef<impl ::uika::runtime::UeClass>) -> ::uika::runtime::UikaResult<Self> {
             let handle = obj.checked()?.raw();
             let is_a = unsafe {
-                ((*::uika::runtime::api().core).is_a)(handle, <Self as ::uika::runtime::UeClass>::static_class())
+                ::uika::runtime::ffi_dispatch::core_is_a(handle, <Self as ::uika::runtime::UeClass>::static_class())
             };
             if !is_a {
                 return Err(::uika::runtime::UikaError::InvalidCast);
@@ -499,7 +501,7 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
 
         add_prop_stmts.push(quote! {
             let #prop_var = unsafe {
-                (reify.add_property)(
+                ::uika::runtime::ffi_dispatch::reify_add_property(
                     class,
                     [#(#ue_name_bytes),*].as_ptr(),
                     #ue_name_len,
@@ -510,12 +512,12 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
             };
         });
 
-        // CDO default
+        // CDO default (unused — defaults are set in finalize)
         if let Some(ref default_expr) = prop.args.default_expr {
-            let setter_fn = &info.setter_fn;
+            let setter_dispatch = format_ident!("property_{}", info.setter_fn);
             cdo_default_stmts.push(quote! {
-                if !#prop_var.0.is_null() {
-                    unsafe { ((*table.property).#setter_fn)(cdo, #prop_var, #default_expr); }
+                if !#prop_var.is_null() {
+                    unsafe { ::uika::runtime::ffi_dispatch::#setter_dispatch(cdo, #prop_var, #default_expr); }
                 }
             });
         }
@@ -547,7 +549,7 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
             {
                 let comp_class = <#comp_type as ::uika::runtime::UeClass>::static_class();
                 unsafe {
-                    (reify.add_default_subobject)(
+                    ::uika::runtime::ffi_dispatch::reify_add_default_subobject(
                         class,
                         [#(#comp_name_bytes),*].as_ptr(), #comp_name_len,
                         comp_class,
@@ -567,19 +569,18 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
             let ue_name = prop_type::to_pascal_case(&prop.ident.to_string());
             let ue_name_bytes = ue_name.as_bytes();
             let ue_name_len = ue_name.len() as u32;
-            let setter_fn = &info.setter_fn;
-
+            let setter_dispatch = format_ident!("property_{}", info.setter_fn);
             finalize_cdo_stmts.push(quote! {
                 {
                     let prop = unsafe {
-                        ((*table.reflection).find_property)(
+                        ::uika::runtime::ffi_dispatch::reflection_find_property(
                             class,
                             [#(#ue_name_bytes),*].as_ptr(),
                             #ue_name_len,
                         )
                     };
-                    if !prop.0.is_null() {
-                        unsafe { ((*table.property).#setter_fn)(cdo, prop, #default_expr); }
+                    if !prop.is_null() {
+                        unsafe { ::uika::runtime::ffi_dispatch::#setter_dispatch(cdo, prop, #default_expr); }
                     }
                 }
             });
@@ -588,7 +589,7 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
 
     let register_fn = quote! {
         #[doc(hidden)]
-        pub fn #register_fn_name(table: &::uika::ffi::UikaApiTable) {
+        pub fn #register_fn_name() {
             const TYPE_ID: u64 = #type_id_value;
 
             // Register Rust type info
@@ -607,39 +608,33 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
                 },
             );
 
-            let reify = unsafe { &*table.reify };
-
             // Find parent class
             let parent = unsafe {
-                ((*table.reflection).find_class)(
+                ::uika::runtime::ffi_dispatch::reflection_find_class(
                     [#(#parent_name_bytes),*].as_ptr(),
                     #parent_name_len,
                 )
             };
-            if parent.0.is_null() {
-                if !table.logging.is_null() {
-                    let msg = concat!("[Uika] ", stringify!(#struct_name), ": failed to find parent class '", #parent_name, "'");
-                    let bytes = msg.as_bytes();
-                    unsafe { ((*table.logging).log)(2, bytes.as_ptr(), bytes.len() as u32); }
-                }
+            if parent.is_null() {
+                let msg = concat!("[Uika] ", stringify!(#struct_name), ": failed to find parent class '", #parent_name, "'");
+                let bytes = msg.as_bytes();
+                unsafe { ::uika::runtime::ffi_dispatch::logging_log(2, bytes.as_ptr(), bytes.len() as u32); }
                 return;
             }
 
             // Create class
             let class = unsafe {
-                (reify.create_class)(
+                ::uika::runtime::ffi_dispatch::reify_create_class(
                     [#(#struct_name_bytes),*].as_ptr(),
                     #struct_name_byte_len,
                     parent,
                     TYPE_ID,
                 )
             };
-            if class.0.is_null() {
-                if !table.logging.is_null() {
-                    let msg = concat!("[Uika] ", stringify!(#struct_name), ": create_class failed");
-                    let bytes = msg.as_bytes();
-                    unsafe { ((*table.logging).log)(2, bytes.as_ptr(), bytes.len() as u32); }
-                }
+            if class.is_null() {
+                let msg = concat!("[Uika] ", stringify!(#struct_name), ": create_class failed");
+                let bytes = msg.as_bytes();
+                unsafe { ::uika::runtime::ffi_dispatch::logging_log(2, bytes.as_ptr(), bytes.len() as u32); }
                 return;
             }
             #class_handle_name.set(class).ok();
@@ -654,35 +649,30 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
 
     let finalize_fn = quote! {
         #[doc(hidden)]
-        pub fn #finalize_fn_name(table: &::uika::ffi::UikaApiTable) {
+        pub fn #finalize_fn_name() {
             let class = match #class_handle_name.get() {
-                Some(&c) if !c.0.is_null() => c,
+                Some(&c) if !c.is_null() => c,
                 _ => return,
             };
-            let reify = unsafe { &*table.reify };
 
             // Finalize
-            let result = unsafe { (reify.finalize_class)(class) };
+            let result = unsafe { ::uika::runtime::ffi_dispatch::reify_finalize_class(class) };
             if result != ::uika::ffi::UikaErrorCode::Ok {
-                if !table.logging.is_null() {
-                    let msg = concat!("[Uika] ", stringify!(#struct_name), ": finalize_class failed");
-                    let bytes = msg.as_bytes();
-                    unsafe { ((*table.logging).log)(2, bytes.as_ptr(), bytes.len() as u32); }
-                }
+                let msg = concat!("[Uika] ", stringify!(#struct_name), ": finalize_class failed");
+                let bytes = msg.as_bytes();
+                unsafe { ::uika::runtime::ffi_dispatch::logging_log(2, bytes.as_ptr(), bytes.len() as u32); }
                 return;
             }
 
             // Set CDO defaults
-            let cdo = unsafe { (reify.get_cdo)(class) };
-            if !cdo.0.is_null() {
+            let cdo = unsafe { ::uika::runtime::ffi_dispatch::reify_get_cdo(class) };
+            if !cdo.is_null() {
                 #(#finalize_cdo_stmts)*
             }
 
-            if !table.logging.is_null() {
-                let msg = concat!("[Uika] ", stringify!(#struct_name), " registered successfully");
-                let bytes = msg.as_bytes();
-                unsafe { ((*table.logging).log)(0, bytes.as_ptr(), bytes.len() as u32); }
-            }
+            let msg = concat!("[Uika] ", stringify!(#struct_name), " registered successfully");
+            let bytes = msg.as_bytes();
+            unsafe { ::uika::runtime::ffi_dispatch::logging_log(0, bytes.as_ptr(), bytes.len() as u32); }
         }
     };
 

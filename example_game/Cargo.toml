@@ -7,6 +7,9 @@ publish = false
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+wasm-host = ["uika/wasm-host"]
+
 [dependencies]
 uika = { path = "../uika", features = ["engine"] }
 glam = "0.29"

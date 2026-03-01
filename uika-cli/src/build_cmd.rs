@@ -129,6 +129,8 @@ struct BuildContext {
     config_path: PathBuf,
     crate_name: String,
     config_dir: PathBuf,
+    /// Extra features for `cargo build` (from `[build].features`).
+    features: Vec<String>,
 }
 
 impl BuildContext {
@@ -161,6 +163,12 @@ impl BuildContext {
             .and_then(|b| b.crate_name.clone())
             .unwrap_or_else(|| detect_cdylib_crate(config_dir));
 
+        let features = config
+            .build
+            .as_ref()
+            .map(|b| b.features.clone())
+            .unwrap_or_default();
+
         BuildContext {
             engine_path,
             project_path,
@@ -168,6 +176,7 @@ impl BuildContext {
             config_path: config_path.to_path_buf(),
             crate_name,
             config_dir: config_dir.to_path_buf(),
+            features,
         }
     }
 
@@ -286,13 +295,13 @@ impl BuildContext {
 
     /// Step 4: cargo build --release.
     fn step4_cargo_build(&self) {
-        run_cmd(&[
-            "cargo",
-            "build",
-            "--release",
-            "-p",
-            &self.crate_name,
-        ]);
+        let mut args = vec!["cargo", "build", "--release", "-p", &self.crate_name];
+        let features_str = self.features.join(",");
+        if !features_str.is_empty() {
+            args.push("--features");
+            args.push(&features_str);
+        }
+        run_cmd(&args);
     }
 
     /// Step 5: Copy built DLL to UE plugin Binaries.

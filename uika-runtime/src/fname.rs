@@ -5,8 +5,8 @@ use std::fmt;
 
 use uika_ffi::FNameHandle;
 
-use crate::api::api;
 use crate::error::check_ffi;
+use crate::ffi_dispatch;
 
 /// A UE FName value. Copy-able, hashable, and comparable.
 ///
@@ -22,7 +22,7 @@ impl FName {
     /// Create an FName from a string.
     pub fn new(name: &str) -> Self {
         let handle = unsafe {
-            ((*api().core).make_fname)(name.as_ptr(), name.len() as u32)
+            ffi_dispatch::core_make_fname(name.as_ptr(), name.len() as u32)
         };
         FName(handle)
     }
@@ -45,7 +45,7 @@ impl FName {
         let mut buf = [0u8; 256];
         let mut out_len: u32 = 0;
         let code = unsafe {
-            ((*api().core).fname_to_string)(
+            ffi_dispatch::core_fname_to_string(
                 self.0,
                 buf.as_mut_ptr(),
                 buf.len() as u32,

@@ -88,11 +88,11 @@ impl WorldSpawnExt for UObjectRef<World> {
     ) -> UikaResult<UObjectRef<T>> {
         let world = self.checked()?.raw();
         let class = T::static_class();
-        let null_owner = uika_ffi::UObjectHandle(std::ptr::null_mut());
+        let null_owner = uika_ffi::UObjectHandle::null();
         let handle = uika_runtime::world::spawn_actor_raw(
             world,
             class,
-            transform.as_bytes(),
+            &transform.to_bytes(),
             null_owner,
         )?;
         warn_no_root_component(handle);
@@ -110,7 +110,7 @@ impl WorldSpawnExt for UObjectRef<World> {
         let handle = uika_runtime::world::spawn_actor_raw(
             world,
             class,
-            transform.as_bytes(),
+            &transform.to_bytes(),
             owner_handle,
         )?;
         warn_no_root_component(handle);
@@ -123,9 +123,9 @@ impl WorldSpawnExt for UObjectRef<World> {
     ) -> UikaResult<UObjectRef<T>> {
         let world = self.checked()?.raw();
         let class = T::static_class();
-        let null = uika_ffi::UObjectHandle(std::ptr::null_mut());
+        let null = uika_ffi::UObjectHandle::null();
         let handle = uika_runtime::world::spawn_actor_deferred_raw(
-            world, class, transform.as_bytes(), null, null, 0,
+            world, class, &transform.to_bytes(), null, null, 0,
         )?;
         warn_no_root_component(handle);
         Ok(unsafe { UObjectRef::from_raw(handle) })
@@ -141,7 +141,7 @@ impl WorldSpawnExt for UObjectRef<World> {
         let world = self.checked()?.raw();
         let class = T::static_class();
         let handle = uika_runtime::world::spawn_actor_deferred_raw(
-            world, class, transform.as_bytes(), owner, instigator, collision_method as u8,
+            world, class, &transform.to_bytes(), owner, instigator, collision_method as u8,
         )?;
         warn_no_root_component(handle);
         Ok(unsafe { UObjectRef::from_raw(handle) })
@@ -153,7 +153,7 @@ impl WorldSpawnExt for UObjectRef<World> {
         transform: &OwnedStruct<FTransform>,
     ) -> UikaResult<()> {
         let actor_handle = actor.checked()?.raw();
-        uika_runtime::world::finish_spawning_raw(actor_handle, transform.as_bytes())
+        uika_runtime::world::finish_spawning_raw(actor_handle, &transform.to_bytes())
     }
 
     fn get_all_actors_of_class<T: UeClass>(&self) -> UikaResult<Vec<UObjectRef<T>>> {
@@ -192,7 +192,7 @@ pub fn new_object<T: UeClass>(outer: &UObjectRef<impl UeClass>) -> UikaResult<UO
 /// Create a new UObject of the given class in the transient package.
 pub fn new_object_transient<T: UeClass>() -> UikaResult<UObjectRef<T>> {
     let class = T::static_class();
-    let null_outer = uika_ffi::UObjectHandle(std::ptr::null_mut());
+    let null_outer = uika_ffi::UObjectHandle::null();
     let handle = uika_runtime::world::new_object_raw(null_outer, class)?;
     Ok(unsafe { UObjectRef::from_raw(handle) })
 }
@@ -206,8 +206,8 @@ pub fn spawn_actor_dynamic(
     transform: &OwnedStruct<FTransform>,
 ) -> UikaResult<uika_ffi::UObjectHandle> {
     let world_handle = world.checked()?.raw();
-    let null_owner = uika_ffi::UObjectHandle(std::ptr::null_mut());
-    uika_runtime::world::spawn_actor_raw(world_handle, class, transform.as_bytes(), null_owner)
+    let null_owner = uika_ffi::UObjectHandle::null();
+    uika_runtime::world::spawn_actor_raw(world_handle, class, &transform.to_bytes(), null_owner)
 }
 
 /// Create a new UObject using a runtime `UClassHandle` (e.g. from TSubclassOf).

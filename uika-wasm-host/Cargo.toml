@@ -1,0 +1,22 @@
+[package]
+name = "uika-wasm-host"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "WASM host runtime for uika — wasmtime embedding + auto-generated host functions"
+
+[dependencies]
+uika-ffi = { path = "../uika-ffi" }
+wasmtime = { version = "29", default-features = false, features = [
+    "cranelift",  # compile .wasm → native (Win/Android) or Pulley bytecode (iOS)
+    "runtime",    # execute compiled modules
+    "pulley",     # Pulley interpreter (iOS)
+    "std",        # std support (cranelift depends on this)
+] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+
+[build-dependencies]
+uika-api-parse = { path = "../uika-api-parse" }

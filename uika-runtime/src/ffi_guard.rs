@@ -23,8 +23,7 @@ where
                 let msg = panic_message(&payload);
                 let bytes = msg.as_bytes();
                 unsafe {
-                    let api = crate::api::api();
-                    ((*api.logging).log)(2, bytes.as_ptr(), bytes.len() as u32);
+                    crate::ffi_dispatch::logging_log(2, bytes.as_ptr(), bytes.len() as u32);
                 }
             }
             default

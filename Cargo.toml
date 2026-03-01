@@ -2,6 +2,8 @@
 members = [
     "uika-ue-flags",
     "uika-ffi",
+    "uika-api-parse",
+    "uika-wasm-host",
     "uika-runtime",
     "uika-macros",
     "uika-codegen",

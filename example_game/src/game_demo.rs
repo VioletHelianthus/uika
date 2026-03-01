@@ -171,17 +171,18 @@ impl GemCollectorGameMode {
 /// NOTE: Previously called automatically from uika_init. Now available for
 /// manual invocation if needed, but CDO defaults are set via #[uproperty(default = ...)].
 #[allow(dead_code)]
+#[cfg(not(target_arch = "wasm32"))]
 pub fn post_register_setup() {
     ulog!(LOG_DISPLAY, "[GemCollector] post_register_setup() called");
     let gm_class = <GemCollectorGameMode as uika::runtime::UeClass>::static_class();
-    if gm_class.0.is_null() {
+    if gm_class.is_null() {
         ulog!(LOG_WARNING, "[GemCollector] post_register_setup: gm_class is null!");
         return;
     }
     let api = uika::runtime::api();
     unsafe {
         let cdo = ((*api.reify).get_cdo)(gm_class);
-        if cdo.0.is_null() {
+        if cdo.is_null() {
             ulog!(LOG_WARNING, "[GemCollector] post_register_setup: CDO is null!");
             return;
         }

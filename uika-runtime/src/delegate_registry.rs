@@ -9,8 +9,9 @@ use std::sync::{Mutex, OnceLock};
 use uika_ffi::{FPropertyHandle, UObjectHandle, UikaErrorCode};
 
 use crate::error::{check_ffi, UikaResult};
+use crate::ffi_dispatch::NativePtr;
 
-type DelegateCallback = Option<Box<dyn FnMut(*mut u8) + Send>>;
+type DelegateCallback = Option<Box<dyn FnMut(NativePtr) + Send>>;
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 static REGISTRY: OnceLock<Mutex<HashMap<u64, DelegateCallback>>> = OnceLock::new();
@@ -20,7 +21,7 @@ fn registry() -> &'static Mutex<HashMap<u64, DelegateCallback>> {
 }
 
 /// Register a closure and return its unique callback ID.
-pub fn register_callback(f: impl FnMut(*mut u8) + Send + 'static) -> u64 {
+pub fn register_callback(f: impl FnMut(NativePtr) + Send + 'static) -> u64 {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     registry().lock().unwrap().insert(id, Some(Box::new(f)));
     id
@@ -45,7 +46,7 @@ pub fn clear_all() {
 /// Uses a take-execute-replace pattern to avoid holding the registry lock
 /// during callback execution, which would deadlock if the callback
 /// registers, unregisters, or invokes other delegates.
-pub fn invoke(callback_id: u64, params: *mut u8) {
+pub fn invoke(callback_id: u64, params: NativePtr) {
     // 1. Briefly lock, take the callback out (replace with None).
     let mut cb = {
         let mut reg = registry().lock().unwrap();
@@ -115,17 +116,16 @@ impl Drop for DelegateBinding {
         unregister_callback(self.callback_id);
 
         // Unbind on the C++ side.
-        unsafe {
-            let api = crate::api::api();
-            if !api.delegate.is_null() {
+        if crate::api::is_api_initialized() {
+            unsafe {
                 if self.is_multicast {
-                    let _ = ((*api.delegate).remove_multicast)(
+                    let _ = crate::ffi_dispatch::delegate_remove_multicast(
                         self.owner,
                         self.prop,
                         self.callback_id,
                     );
                 } else {
-                    let _ = ((*api.delegate).unbind_delegate)(self.owner, self.prop);
+                    let _ = crate::ffi_dispatch::delegate_unbind_delegate(self.owner, self.prop);
                 }
             }
         }
@@ -140,10 +140,10 @@ impl Drop for DelegateBinding {
 pub fn bind_unicast(
     owner: UObjectHandle,
     prop: FPropertyHandle,
-    callback: impl FnMut(*mut u8) + Send + 'static,
+    callback: impl FnMut(NativePtr) + Send + 'static,
 ) -> UikaResult<DelegateBinding> {
     let id = register_callback(callback);
-    let result = unsafe { ((*crate::api::api().delegate).bind_delegate)(owner, prop, id) };
+    let result = unsafe { crate::ffi_dispatch::delegate_bind_delegate(owner, prop, id) };
     if result != UikaErrorCode::Ok {
         unregister_callback(id);
         check_ffi(result)?;
@@ -155,10 +155,10 @@ pub fn bind_unicast(
 pub fn bind_multicast(
     owner: UObjectHandle,
     prop: FPropertyHandle,
-    callback: impl FnMut(*mut u8) + Send + 'static,
+    callback: impl FnMut(NativePtr) + Send + 'static,
 ) -> UikaResult<DelegateBinding> {
     let id = register_callback(callback);
-    let result = unsafe { ((*crate::api::api().delegate).add_multicast)(owner, prop, id) };
+    let result = unsafe { crate::ffi_dispatch::delegate_add_multicast(owner, prop, id) };
     if result != UikaErrorCode::Ok {
         unregister_callback(id);
         check_ffi(result)?;

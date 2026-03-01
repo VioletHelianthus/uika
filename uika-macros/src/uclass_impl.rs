@@ -102,29 +102,29 @@ pub fn expand_uclass_impl(_attr: TokenStream, item: TokenStream) -> syn::Result<
             let param_ue_len = param_ue_name.len() as u32;
             offset_inits.push(quote! {
                 {
-                    let p = ((*api.reflection).get_function_param)(
+                    let p = ::uika::runtime::ffi_dispatch::reflection_get_function_param(
                         func,
                         [#(#param_ue_bytes),*].as_ptr(),
                         #param_ue_len,
                     );
-                    ((*api.reflection).get_property_offset)(p)
+                    ::uika::runtime::ffi_dispatch::reflection_get_property_offset(p)
                 }
             });
         }
         if uf.return_type.is_some() {
             offset_inits.push(quote! {
                 {
-                    let p = ((*api.reflection).get_function_param)(
+                    let p = ::uika::runtime::ffi_dispatch::reflection_get_function_param(
                         func,
                         b"ReturnValue".as_ptr(),
                         11u32,
                     );
-                    ((*api.reflection).get_property_offset)(p)
+                    ::uika::runtime::ffi_dispatch::reflection_get_property_offset(p)
                 }
             });
         }
 
-        // Generate param reads from the params buffer
+        // Generate param reads from the params buffer (via native_mem_read for wasm32 compat)
         let mut param_reads: Vec<TokenStream> = Vec::new();
         let mut param_idents: Vec<&Ident> = Vec::new();
         for (i, param) in uf.params.iter().enumerate() {
@@ -133,7 +133,7 @@ pub fn expand_uclass_impl(_attr: TokenStream, item: TokenStream) -> syn::Result<
             let idx = syn::Index::from(i);
             param_reads.push(quote! {
                 let #rust_name: #rust_ty = unsafe {
-                    *(params.add(offsets[#idx] as usize) as *const #rust_ty)
+                    ::uika::runtime::ffi_dispatch::native_mem_read::<#rust_ty>(params, offsets[#idx] as usize)
                 };
             });
             param_idents.push(rust_name);
@@ -147,10 +147,17 @@ pub fn expand_uclass_impl(_attr: TokenStream, item: TokenStream) -> syn::Result<
             let ret_idx = syn::Index::from(uf.params.len());
             (
                 quote! {
-                    unsafe { std::ptr::write_bytes(params.add(offsets[#ret_idx] as usize), 0, std::mem::size_of::<#ret_ty>()); }
+                    unsafe {
+                        ::uika::runtime::ffi_dispatch::native_mem_write(
+                            params, offsets[#ret_idx] as usize,
+                            unsafe { std::mem::zeroed::<#ret_ty>() },
+                        );
+                    }
                 },
                 quote! {
-                    unsafe { *(params.add(offsets[#ret_idx] as usize) as *mut #ret_ty) = __ret; }
+                    unsafe {
+                        ::uika::runtime::ffi_dispatch::native_mem_write(params, offsets[#ret_idx] as usize, __ret);
+                    }
                 },
             )
         } else {
@@ -187,12 +194,11 @@ pub fn expand_uclass_impl(_attr: TokenStream, item: TokenStream) -> syn::Result<
         register_stmts.push(quote! {
             let __callback_id = {
                 let callback_id = ::uika::runtime::reify_registry::register_function(
-                    move |obj: ::uika::ffi::UObjectHandle, rust_data: *mut u8, params: *mut u8| {
+                    move |obj: ::uika::ffi::UObjectHandle, rust_data: *mut u8, params: ::uika::runtime::ffi_dispatch::NativePtr| {
                         static OFFSETS: std::sync::OnceLock<[u32; #total_offsets]> = std::sync::OnceLock::new();
                         let offsets = OFFSETS.get_or_init(|| unsafe {
-                            let api = ::uika::runtime::api();
                             let cls = <#struct_name as ::uika::runtime::UeClass>::static_class();
-                            let func = ((*api.reflection).find_function_by_class)(
+                            let func = ::uika::runtime::ffi_dispatch::reflection_find_function_by_class(
                                 cls,
                                 [#(#ue_name_bytes),*].as_ptr(),
                                 #ue_name_len,
@@ -210,7 +216,7 @@ pub fn expand_uclass_impl(_attr: TokenStream, item: TokenStream) -> syn::Result<
             };
 
             let #func_var = unsafe {
-                (reify.add_function)(
+                ::uika::runtime::ffi_dispatch::reify_add_function(
                     cls,
                     [#(#ue_name_bytes),*].as_ptr(),
                     #ue_name_len,
@@ -230,7 +236,7 @@ pub fn expand_uclass_impl(_attr: TokenStream, item: TokenStream) -> syn::Result<
 
             register_stmts.push(quote! {
                 unsafe {
-                    (reify.add_function_param)(
+                    ::uika::runtime::ffi_dispatch::reify_add_function_param(
                         #func_var,
                         [#(#param_ue_bytes),*].as_ptr(),
                         #param_ue_len,
@@ -249,7 +255,7 @@ pub fn expand_uclass_impl(_attr: TokenStream, item: TokenStream) -> syn::Result<
 
             register_stmts.push(quote! {
                 unsafe {
-                    (reify.add_function_param)(
+                    ::uika::runtime::ffi_dispatch::reify_add_function_param(
                         #func_var,
                         b"ReturnValue".as_ptr(),
                         11u32,
@@ -264,12 +270,11 @@ pub fn expand_uclass_impl(_attr: TokenStream, item: TokenStream) -> syn::Result<
 
     let register_functions_fn = quote! {
         #[doc(hidden)]
-        pub fn #register_fns_name(table: &::uika::ffi::UikaApiTable) {
+        pub fn #register_fns_name() {
             let cls = match #class_handle_name.get() {
-                Some(&c) if !c.0.is_null() => c,
+                Some(&c) if !c.is_null() => c,
                 _ => return,
             };
-            let reify = unsafe { &*table.reify };
             #(#register_stmts)*
         }
     };

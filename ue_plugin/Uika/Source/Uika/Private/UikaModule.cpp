@@ -97,10 +97,21 @@ static FAutoConsoleCommand CmdReload(
     TEXT("Hot-reload the Rust DLL (unload → copy → load)."),
     FConsoleCommandDelegate::CreateStatic(&FUikaModule::StaticReload));
 
+static FAutoConsoleCommand CmdReloadWasm(
+    TEXT("Uika.ReloadWasm"),
+    TEXT("Hot-reload WASM module without DLL swap."),
+    FConsoleCommandDelegate::CreateStatic(&FUikaModule::StaticReloadWasm));
+
 void FUikaModule::StaticReload()
 {
     FUikaModule& Module = FModuleManager::GetModuleChecked<FUikaModule>(TEXT("Uika"));
     Module.ReloadRustDll();
+}
+
+void FUikaModule::StaticReloadWasm()
+{
+    FUikaModule& Module = FModuleManager::GetModuleChecked<FUikaModule>(TEXT("Uika"));
+    Module.ReloadWasm();
 }
 
 // ---------------------------------------------------------------------------
@@ -242,25 +253,11 @@ void FUikaModule::UnloadRustDll()
 }
 
 // ---------------------------------------------------------------------------
-// Hot reload
+// Reified instance teardown / reconstruct helpers (shared by DLL and WASM reload)
 // ---------------------------------------------------------------------------
 
-void FUikaModule::ReloadRustDll()
+void FUikaModule::TeardownReifiedInstances()
 {
-    UE_LOG(LogUika, Display, TEXT("[Uika] === Hot Reload Begin ==="));
-
-    if (DllSourcePath.IsEmpty())
-    {
-        UE_LOG(LogUika, Error,
-            TEXT("[Uika] Hot reload failed: DLL source path not set (was initial load skipped?)"));
-        return;
-    }
-
-    // ------------------------------------------------------------------
-    // Phase 1: Teardown — drop all Rust instances and unload old DLL
-    // ------------------------------------------------------------------
-
-    // 1a. Drop Rust instance data for all reified objects.
     if (DllHandle && RustCallbacks && RustCallbacks->drop_rust_instance)
     {
         int32 InstanceCount = 0;
@@ -274,60 +271,12 @@ void FUikaModule::ReloadRustDll()
                 InstanceCount++;
             });
         UE_LOG(LogUika, Display,
-            TEXT("[Uika] Hot reload: dropped %d Rust instances"), InstanceCount);
+            TEXT("[Uika] Dropped %d Rust instances"), InstanceCount);
     }
+}
 
-    // 1b. Unload the old DLL (calls on_shutdown, uika_shutdown, FreeDllHandle).
-    FString PreviousLoadedPath = CurrentLoadedDllPath;
-    UnloadRustDll();
-
-    // 1c. Delete previous hot-copy (now unlocked).
-    if (!PreviousLoadedPath.IsEmpty() && PreviousLoadedPath != DllSourcePath)
-    {
-        IFileManager::Get().Delete(*PreviousLoadedPath, false, true, true);
-    }
-
-    // ------------------------------------------------------------------
-    // Phase 2: Copy-on-reload — copy the new DLL to avoid Windows lock
-    // ------------------------------------------------------------------
-
-    if (!FPaths::FileExists(DllSourcePath))
-    {
-        UE_LOG(LogUika, Error,
-            TEXT("[Uika] Hot reload failed: %s not found. Did cargo build succeed?"),
-            *DllSourcePath);
-        return;
-    }
-
-    ReloadCount++;
-    const FString HotDllPath = FPaths::Combine(
-        FPaths::GetPath(DllSourcePath),
-        FString::Printf(TEXT("uika_hot_%d.dll"), ReloadCount));
-
-    // Copy the freshly built DLL to a uniquely-named hot copy.
-    uint32 CopyResult = IFileManager::Get().Copy(*HotDllPath, *DllSourcePath);
-    if (CopyResult != 0)
-    {
-        UE_LOG(LogUika, Error,
-            TEXT("[Uika] Hot reload failed: could not copy %s → %s (error %u)"),
-            *DllSourcePath, *HotDllPath, CopyResult);
-        return;
-    }
-
-    // ------------------------------------------------------------------
-    // Phase 2b: Load the new DLL and re-initialize Rust
-    // ------------------------------------------------------------------
-
-    if (!LoadRustDll(HotDllPath))
-    {
-        UE_LOG(LogUika, Error, TEXT("[Uika] Hot reload failed: could not load new DLL"));
-        return;
-    }
-
-    // ------------------------------------------------------------------
-    // Phase 3: Reconstruct — rebuild Rust instance data for all objects
-    // ------------------------------------------------------------------
-
+void FUikaModule::ReconstructReifiedInstances()
+{
     if (RustCallbacks && RustCallbacks->construct_rust_instance)
     {
         int32 ReconstructCount = 0;
@@ -342,10 +291,112 @@ void FUikaModule::ReloadRustDll()
                 ReconstructCount++;
             });
         UE_LOG(LogUika, Display,
-            TEXT("[Uika] Hot reload: reconstructed %d Rust instances"), ReconstructCount);
+            TEXT("[Uika] Reconstructed %d Rust instances"), ReconstructCount);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Hot reload (DLL swap)
+// ---------------------------------------------------------------------------
+
+void FUikaModule::ReloadRustDll()
+{
+    UE_LOG(LogUika, Display, TEXT("[Uika] === Hot Reload Begin ==="));
+
+    if (DllSourcePath.IsEmpty())
+    {
+        UE_LOG(LogUika, Error,
+            TEXT("[Uika] Hot reload failed: DLL source path not set (was initial load skipped?)"));
+        return;
     }
 
+    // Phase 1: Teardown — drop all Rust instances and unload old DLL
+    TeardownReifiedInstances();
+
+    FString PreviousLoadedPath = CurrentLoadedDllPath;
+    UnloadRustDll();
+
+    if (!PreviousLoadedPath.IsEmpty() && PreviousLoadedPath != DllSourcePath)
+    {
+        IFileManager::Get().Delete(*PreviousLoadedPath, false, true, true);
+    }
+
+    // Phase 2: Copy-on-reload — copy the new DLL to avoid Windows lock
+    if (!FPaths::FileExists(DllSourcePath))
+    {
+        UE_LOG(LogUika, Error,
+            TEXT("[Uika] Hot reload failed: %s not found. Did cargo build succeed?"),
+            *DllSourcePath);
+        return;
+    }
+
+    ReloadCount++;
+    const FString HotDllPath = FPaths::Combine(
+        FPaths::GetPath(DllSourcePath),
+        FString::Printf(TEXT("uika_hot_%d.dll"), ReloadCount));
+
+    uint32 CopyResult = IFileManager::Get().Copy(*HotDllPath, *DllSourcePath);
+    if (CopyResult != 0)
+    {
+        UE_LOG(LogUika, Error,
+            TEXT("[Uika] Hot reload failed: could not copy %s → %s (error %u)"),
+            *DllSourcePath, *HotDllPath, CopyResult);
+        return;
+    }
+
+    // Phase 2b: Load the new DLL and re-initialize Rust
+    if (!LoadRustDll(HotDllPath))
+    {
+        UE_LOG(LogUika, Error, TEXT("[Uika] Hot reload failed: could not load new DLL"));
+        return;
+    }
+
+    // Phase 3: Reconstruct — rebuild Rust instance data
+    ReconstructReifiedInstances();
+
     UE_LOG(LogUika, Display, TEXT("[Uika] === Hot Reload Complete ==="));
+}
+
+// ---------------------------------------------------------------------------
+// WASM hot reload (no DLL swap)
+// ---------------------------------------------------------------------------
+
+void FUikaModule::ReloadWasm()
+{
+    UE_LOG(LogUika, Display, TEXT("[Uika] === WASM Hot Reload Begin ==="));
+
+    if (!DllHandle)
+    {
+        UE_LOG(LogUika, Error, TEXT("[Uika] WASM reload failed: no DLL loaded"));
+        return;
+    }
+
+    // Phase 1: Teardown — drop all Rust instances
+    TeardownReifiedInstances();
+
+    // Phase 2: Call uika_reload_wasm — Rust side shutdown + re-read game.wasm + re-init
+    using FUikaReloadWasmFn = bool(*)();
+    auto ReloadWasmFn = reinterpret_cast<FUikaReloadWasmFn>(
+        FPlatformProcess::GetDllExport(DllHandle, TEXT("uika_reload_wasm")));
+    if (!ReloadWasmFn)
+    {
+        UE_LOG(LogUika, Error,
+            TEXT("[Uika] WASM reload failed: uika_reload_wasm export not found (wasm-host feature not enabled?)"));
+        return;
+    }
+
+    bool bSuccess = ReloadWasmFn();
+    if (!bSuccess)
+    {
+        UE_LOG(LogUika, Error,
+            TEXT("[Uika] WASM reload failed: uika_reload_wasm returned false"));
+        return;
+    }
+
+    // Phase 3: Reconstruct — rebuild Rust instance data
+    ReconstructReifiedInstances();
+
+    UE_LOG(LogUika, Display, TEXT("[Uika] === WASM Hot Reload Complete ==="));
 }
 
 #undef LOCTEXT_NAMESPACE

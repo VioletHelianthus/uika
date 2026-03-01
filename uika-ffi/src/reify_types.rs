@@ -45,10 +45,10 @@ pub struct UikaReifyPropExtra {
 impl Default for UikaReifyPropExtra {
     fn default() -> Self {
         Self {
-            class_handle: UClassHandle(std::ptr::null_mut()),
-            meta_class_handle: UClassHandle(std::ptr::null_mut()),
-            struct_handle: UStructHandle(std::ptr::null_mut()),
-            enum_handle: UClassHandle(std::ptr::null_mut()),
+            class_handle: UClassHandle::null(),
+            meta_class_handle: UClassHandle::null(),
+            struct_handle: UStructHandle::null(),
+            enum_handle: UClassHandle::null(),
             enum_underlying: 0,
         }
     }

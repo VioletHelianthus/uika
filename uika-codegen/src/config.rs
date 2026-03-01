@@ -24,6 +24,9 @@ pub struct UeConfig {
 pub struct BuildConfig {
     /// Cargo crate name of the cdylib to build. If not set, auto-detected from Cargo.toml.
     pub crate_name: Option<String>,
+    /// Extra features to pass to `cargo build` (e.g. `["wasm-host"]`).
+    #[serde(default)]
+    pub features: Vec<String>,
 }
 
 #[derive(Deserialize)]

@@ -212,12 +212,12 @@ impl UikaTestRunner {
 
         run_test!(self, "A3: get_class_returns_valid", {
             let cls = self_ref.get_class()?;
-            assert_true(!cls.0.is_null(), "class handle should not be null")
+            assert_true(!cls.is_null(), "class handle should not be null")
         });
 
         run_test!(self, "A4: get_outer_returns_nonnull", {
             let outer = self_ref.get_outer()?;
-            assert_true(!outer.0.is_null(), "outer should not be null (actors have Level outer)")
+            assert_true(!outer.is_null(), "outer should not be null (actors have Level outer)")
         });
 
         run_test!(self, "A5: cast_to_object_succeeds", {
@@ -588,7 +588,7 @@ impl UikaTestRunner {
             let call = DynamicCall::new(&world, "K2_GetWorldSettings")?;
             let result = call.call()?;
             let settings_h: uika::runtime::UObjectHandle = result.get("ReturnValue")?;
-            assert_true(!settings_h.0.is_null(), "world settings should not be null")
+            assert_true(!settings_h.is_null(), "world settings should not be null")
         });
 
         run_test!(self, "G3: find_object_nonexistent_returns_err", {
@@ -813,7 +813,7 @@ impl UikaTestRunner {
     fn test_error_handling(&mut self, self_ref: &UObjectRef<Actor>) {
         run_test!(self, "L1: checked_null_handle", {
             let null_ref: UObjectRef<Actor> = unsafe {
-                UObjectRef::from_raw(uika::runtime::UObjectHandle(std::ptr::null_mut()))
+                UObjectRef::from_raw(uika::runtime::UObjectHandle::null())
             };
             match null_ref.checked() {
                 Err(UikaError::ObjectDestroyed) => Ok(()),
@@ -825,7 +825,7 @@ impl UikaTestRunner {
 
         run_test!(self, "L2: cast_null_fails", {
             let null_ref: UObjectRef<Actor> = unsafe {
-                UObjectRef::from_raw(uika::runtime::UObjectHandle(std::ptr::null_mut()))
+                UObjectRef::from_raw(uika::runtime::UObjectHandle::null())
             };
             match null_ref.cast::<World>() {
                 Err(UikaError::ObjectDestroyed) => Ok(()),
@@ -837,7 +837,7 @@ impl UikaTestRunner {
 
         run_test!(self, "L3: pin_null_fails", {
             let null_ref: UObjectRef<Actor> = unsafe {
-                UObjectRef::from_raw(uika::runtime::UObjectHandle(std::ptr::null_mut()))
+                UObjectRef::from_raw(uika::runtime::UObjectHandle::null())
             };
             match null_ref.pin() {
                 Err(UikaError::ObjectDestroyed) => Ok(()),
@@ -1208,7 +1208,7 @@ impl UikaTestRunner {
             assert_true(pawn.is_valid(), "pawn should be valid")?;
             // Verify it's actually a Pawn via IsA
             let cls = pawn.get_class()?;
-            assert_true(!cls.0.is_null(), "pawn class should not be null")
+            assert_true(!cls.is_null(), "pawn class should not be null")
         });
     }
 
@@ -1230,7 +1230,7 @@ impl UikaTestRunner {
             let class = Actor::static_class();
             let t = identity_transform();
             let handle = world_ext::spawn_actor_dynamic(&world, class, &t)?;
-            assert_true(!handle.0.is_null(), "dynamic spawned actor should not be null")?;
+            assert_true(!handle.is_null(), "dynamic spawned actor should not be null")?;
             let actor: UObjectRef<Actor> = unsafe { UObjectRef::from_raw(handle) };
             assert_true(actor.is_valid(), "dynamic spawned actor should be valid")?;
             actor.checked()?.k2_destroy_actor();
@@ -1240,9 +1240,9 @@ impl UikaTestRunner {
         // R2: new_object_dynamic with runtime class handle (use Actor, not UObject which is abstract)
         run_test!(self, "R2: new_object_dynamic", {
             let class = Actor::static_class();
-            let null_outer = uika::ffi::UObjectHandle(std::ptr::null_mut());
+            let null_outer = uika::ffi::UObjectHandle::null();
             let handle = world_ext::new_object_dynamic(null_outer, class)?;
-            assert_true(!handle.0.is_null(), "dynamic new_object should not be null")?;
+            assert_true(!handle.is_null(), "dynamic new_object should not be null")?;
             let obj: UObjectRef<Actor> = unsafe { UObjectRef::from_raw(handle) };
             assert_true(obj.is_valid(), "dynamic new_object should be valid")
         });
@@ -1308,7 +1308,7 @@ impl UikaTestRunner {
         // S3: spawn_actor_deferred_full with collision method
         run_test!(self, "S3: deferred_full_with_collision_method", {
             let t = identity_transform();
-            let null = uika::ffi::UObjectHandle(std::ptr::null_mut());
+            let null = uika::ffi::UObjectHandle::null();
             let actor: UObjectRef<Actor> = world.spawn_actor_deferred_full(
                 &t, null, null, SpawnCollisionMethod::AlwaysSpawn,
             )?;

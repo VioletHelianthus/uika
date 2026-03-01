@@ -484,12 +484,13 @@ pub struct UikaWorldApi {
     ) -> UObjectHandle,
 
     /// Get all actors of a given class in the world. Returns actor count.
-    /// Writes handles into `out_buf` (up to `buf_capacity` entries).
+    /// Writes handles into `out_buf` (byte buffer, up to `buf_byte_size` bytes).
+    /// Each handle is `size_of::<UObjectHandle>()` bytes.
     pub get_all_actors_of_class: unsafe extern "C" fn(
         world: UObjectHandle,
         class: UClassHandle,
-        out_buf: *mut UObjectHandle,
-        buf_capacity: u32,
+        out_buf: *mut u8,
+        buf_byte_size: u32,
         out_count: *mut u32,
     ) -> UikaErrorCode,
 

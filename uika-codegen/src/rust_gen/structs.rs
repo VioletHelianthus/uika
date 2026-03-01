@@ -44,7 +44,7 @@ pub fn generate_struct(s: &StructInfo, ctx: &CodegenContext) -> String {
              \x20   fn static_struct() -> uika_runtime::UStructHandle {{\n\
              \x20       static CACHE: std::sync::OnceLock<uika_runtime::UStructHandle> = std::sync::OnceLock::new();\n\
              \x20       *CACHE.get_or_init(|| unsafe {{\n\
-             \x20           ((*uika_runtime::api().reflection).find_struct)({byte_lit}.as_ptr(), {name_len})\n\
+             \x20           uika_runtime::ffi_dispatch::reflection_find_struct({byte_lit}.as_ptr(), {name_len})\n\
              \x20       }})\n\
              \x20   }}\n\
              }}\n\n"

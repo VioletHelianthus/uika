@@ -9,8 +9,8 @@ use std::ops::Deref;
 
 use uika_ffi::{UClassHandle, UObjectHandle};
 
-use crate::api::api;
 use crate::error::{check_ffi, UikaError, UikaResult};
+use crate::ffi_dispatch;
 use crate::pinned::Pinned;
 use crate::traits::{HasParent, UeClass, UeHandle, ValidHandle};
 
@@ -54,7 +54,7 @@ impl<T: UeClass> UObjectRef<T> {
     /// Check whether the underlying UObject is still alive.
     #[inline]
     pub fn is_valid(&self) -> bool {
-        unsafe { ((*api().core).is_valid)(self.handle) }
+        unsafe { ffi_dispatch::core_is_valid(self.handle) }
     }
 
     /// Validate that the object is still alive, returning a `Checked<T>`
@@ -76,7 +76,7 @@ impl<T: UeClass> UObjectRef<T> {
     pub fn cast<U: UeClass>(self) -> UikaResult<UObjectRef<U>> {
         let h = self.checked()?.raw();
         let target = U::static_class();
-        if unsafe { ((*api().core).is_a)(h, target) } {
+        if unsafe { ffi_dispatch::core_is_a(h, target) } {
             Ok(UObjectRef {
                 handle: self.handle,
                 _marker: PhantomData,
@@ -98,7 +98,7 @@ impl<T: UeClass> UObjectRef<T> {
         let mut buf = [0u8; 256];
         let mut out_len: u32 = 0;
         let code = unsafe {
-            ((*api().core).get_name)(h, buf.as_mut_ptr(), buf.len() as u32, &mut out_len)
+            ffi_dispatch::core_get_name(h, buf.as_mut_ptr(), buf.len() as u32, &mut out_len)
         };
         check_ffi(code)?;
         // C++ writes valid UTF-8 (converted from TCHAR).
@@ -110,20 +110,20 @@ impl<T: UeClass> UObjectRef<T> {
     /// Get the object's UClass handle.
     pub fn get_class(&self) -> UikaResult<UClassHandle> {
         let h = self.checked()?.raw();
-        Ok(unsafe { ((*api().core).get_class)(h) })
+        Ok(unsafe { ffi_dispatch::core_get_class(h) })
     }
 
     /// Get the object's Outer.
     pub fn get_outer(&self) -> UikaResult<UObjectHandle> {
         let h = self.checked()?.raw();
-        Ok(unsafe { ((*api().core).get_outer)(h) })
+        Ok(unsafe { ffi_dispatch::core_get_outer(h) })
     }
 
     /// Check whether this object is an instance of `U` (or a subclass of `U`).
     /// Returns `false` if the object has been destroyed.
     #[inline]
     pub fn is_a<U: UeClass>(&self) -> bool {
-        self.is_valid() && unsafe { ((*api().core).is_a)(self.handle, U::static_class()) }
+        self.is_valid() && unsafe { ffi_dispatch::core_is_a(self.handle, U::static_class()) }
     }
 }
 
@@ -211,7 +211,7 @@ impl<T: UeClass> Checked<T> {
     /// No validity check needed — already validated at `Checked` construction.
     #[inline]
     pub fn is_a<U: UeClass>(&self) -> bool {
-        unsafe { ((*api().core).is_a)(self.handle, U::static_class()) }
+        unsafe { ffi_dispatch::core_is_a(self.handle, U::static_class()) }
     }
 
     /// Cast to a different UClass type. Fails if not an instance of `U`.

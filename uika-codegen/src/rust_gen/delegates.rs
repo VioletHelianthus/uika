@@ -263,7 +263,7 @@ pub fn generate_delegate_impls(
             "    fn {rust_name}(&self) -> {struct_name} {{\n\
              \x20       static PROP: std::sync::OnceLock<uika_runtime::FPropertyHandle> = std::sync::OnceLock::new();\n\
              \x20       let prop = *PROP.get_or_init(|| unsafe {{\n\
-             \x20           ((*uika_runtime::api().reflection).find_property)(\n\
+             \x20           uika_runtime::ffi_dispatch::reflection_find_property(\n\
              \x20               {class_name}::static_class(), {byte_lit}.as_ptr(), {prop_name_len}\n\
              \x20           )\n\
              \x20       }});\n\
@@ -321,7 +321,7 @@ pub fn generate_delegate_structs(
             out.push_str(&format!(
                 "        static OFFSETS: std::sync::OnceLock<[u32; {n_params}]> = std::sync::OnceLock::new();\n\
                  \x20       let offsets = OFFSETS.get_or_init(|| unsafe {{\n\
-                 \x20           let sig_func = ((*uika_runtime::api().reflection).find_function_by_class)(\n\
+                 \x20           let sig_func = uika_runtime::ffi_dispatch::reflection_find_function_by_class(\n\
                  \x20               {class_name}::static_class(),\n\
                  \x20               {sig_byte_lit}.as_ptr(), {sig_name_len});\n\
                  \x20           [\n"
@@ -341,9 +341,9 @@ pub fn generate_delegate_structs(
                 let pname_lit = format!("b\"{}\\0\"", param_ue_name);
                 out.push_str(&format!(
                     "                {{\n\
-                     \x20                   let param_prop = ((*uika_runtime::api().reflection).get_function_param)(\n\
+                     \x20                   let param_prop = uika_runtime::ffi_dispatch::reflection_get_function_param(\n\
                      \x20                       sig_func, {pname_lit}.as_ptr(), {pname_len});\n\
-                     \x20                   ((*uika_runtime::api().reflection).get_property_offset)(param_prop)\n\
+                     \x20                   uika_runtime::ffi_dispatch::reflection_get_property_offset(param_prop)\n\
                      \x20               }},\n"
                 ));
             }
@@ -355,12 +355,12 @@ pub fn generate_delegate_structs(
             );
         }
 
-        // Build the closure wrapper that extracts typed params from raw *mut u8
+        // Build the closure wrapper that extracts typed params from NativePtr
         if d.params.is_empty() {
             out.push_str(&format!(
                 "        let owner = self.owner;\n\
                  \x20       let prop = self.prop;\n\
-                 \x20       uika_runtime::delegate_registry::{api_fn}(owner, prop, move |_params: *mut u8| {{\n\
+                 \x20       uika_runtime::delegate_registry::{api_fn}(owner, prop, move |_params: uika_runtime::ffi_dispatch::NativePtr| {{\n\
                  \x20           callback();\n\
                  \x20       }})\n\
                  \x20   }}\n"
@@ -376,47 +376,41 @@ pub fn generate_delegate_structs(
         out.push_str(&format!(
             "        let owner = self.owner;\n\
              \x20       let prop = self.prop;\n\
-             \x20       uika_runtime::delegate_registry::{api_fn}(owner, prop, move |{params_var}: *mut u8| {{\n"
+             \x20       uika_runtime::delegate_registry::{api_fn}(owner, prop, move |{params_var}: uika_runtime::ffi_dispatch::NativePtr| {{\n"
         ));
 
         if needs_unsafe {
             out.push_str("            unsafe {\n");
         }
 
-        // Extract each parameter
+        // Extract each parameter via native_mem_read (works on both native and wasm32)
         for (i, p) in d.params.iter().enumerate() {
             let var_name = &p.name;
             match &p.conversion {
                 ParamConversion::Primitive(ty) => {
                     out.push_str(&format!(
-                        "                let {var_name} = *(params.add(offsets[{i}] as usize) as *const {ty});\n"
+                        "                let {var_name} = uika_runtime::ffi_dispatch::native_mem_read::<{ty}>(params, offsets[{i}] as usize);\n"
                     ));
                 }
                 ParamConversion::ObjectRef(_cls) => {
                     out.push_str(&format!(
                         "                let {var_name} = uika_runtime::UObjectRef::from_raw(\n\
-                         \x20                   *(params.add(offsets[{i}] as usize) as *const uika_runtime::UObjectHandle)\n\
+                         \x20                   uika_runtime::ffi_dispatch::native_mem_read::<uika_runtime::UObjectHandle>(params, offsets[{i}] as usize)\n\
                          \x20               );\n"
                     ));
                 }
                 ParamConversion::Enum { rust_type, repr } => {
-                    // SAFETY: the raw value came from UE and must be a valid repr bit pattern.
-                    // If from_value doesn't recognize it (e.g. unlisted variant), transmute is safe
-                    // because the enum is #[repr(integer)].
                     out.push_str(&format!(
-                        "                let __raw_{var_name} = *(params.add(offsets[{i}] as usize) as *const {repr});\n\
+                        "                let __raw_{var_name} = uika_runtime::ffi_dispatch::native_mem_read::<{repr}>(params, offsets[{i}] as usize);\n\
                          \x20               let {var_name} = {rust_type}::from_value(__raw_{var_name}).unwrap_or_else(|| std::mem::transmute(__raw_{var_name}));\n"
                     ));
                 }
                 ParamConversion::FName => {
                     out.push_str(&format!(
-                        "                let {var_name} = *(params.add(offsets[{i}] as usize) as *const uika_runtime::FNameHandle);\n"
+                        "                let {var_name} = uika_runtime::ffi_dispatch::native_mem_read::<uika_runtime::FNameHandle>(params, offsets[{i}] as usize);\n"
                     ));
                 }
                 ParamConversion::String => {
-                    // Strings in delegate params are FString in UE memory.
-                    // Reading them requires calling the property API. For now,
-                    // pass an empty string — full support needs ProcessEvent param extraction.
                     out.push_str(&format!(
                         "                let {var_name} = String::new(); // TODO: string param extraction\n"
                     ));

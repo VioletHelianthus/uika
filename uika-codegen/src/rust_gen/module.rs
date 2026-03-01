@@ -76,6 +76,9 @@ pub fn generate_lib_rs(ctx: &CodegenContext) -> String {
         }
     }
 
+    // WASM extern imports for codegen functions (generated, cfg-gated).
+    out.push_str("#[cfg(target_arch = \"wasm32\")]\npub mod wasm_fn_imports;\n\n");
+
     // Hand-written manual override module (not generated).
     out.push_str("pub mod manual;\n\n");
 

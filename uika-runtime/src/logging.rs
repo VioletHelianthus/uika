@@ -23,7 +23,7 @@ macro_rules! ulog {
         // SAFETY: api() is initialized before any Rust code can run, and the
         // logging sub-table pointer is always valid after init.
         unsafe {
-            ((*$crate::api().logging).log)($level, bytes.as_ptr(), bytes.len() as u32);
+            $crate::ffi_dispatch::logging_log($level, bytes.as_ptr(), bytes.len() as u32);
         }
     }};
 }

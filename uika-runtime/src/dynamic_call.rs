@@ -6,8 +6,8 @@
 
 use uika_ffi::{FPropertyHandle, UFunctionHandle, UObjectHandle};
 
-use crate::api::api;
 use crate::error::{check_ffi, UikaError, UikaResult};
+use crate::ffi_dispatch::{self, NativePtr, NATIVE_PTR_NULL, native_ptr_is_null};
 use crate::object_ref::UObjectRef;
 use crate::traits::UeClass;
 
@@ -23,7 +23,7 @@ use crate::traits::UeClass;
 pub struct DynamicCall {
     obj: UObjectHandle,
     func: UFunctionHandle,
-    params: *mut u8,
+    params: NativePtr,
 }
 
 impl DynamicCall {
@@ -31,12 +31,12 @@ impl DynamicCall {
     pub fn new(obj: &UObjectRef<impl UeClass>, func_name: &str) -> UikaResult<Self> {
         let h = obj.checked()?.raw();
         let func = unsafe {
-            ((*api().reflection).find_function)(h, func_name.as_ptr(), func_name.len() as u32)
+            ffi_dispatch::reflection_find_function(h, func_name.as_ptr(), func_name.len() as u32)
         };
-        if func.0.is_null() {
+        if func.is_null() {
             return Err(UikaError::FunctionNotFound(func_name.to_string()));
         }
-        let params = unsafe { ((*api().reflection).alloc_params)(func) };
+        let params = unsafe { ffi_dispatch::reflection_alloc_params(func) };
         Ok(DynamicCall {
             obj: h,
             func,
@@ -56,7 +56,7 @@ impl DynamicCall {
         // SAFETY: The offset is provided by UE reflection and the caller
         // guarantees T matches the property type.
         unsafe {
-            std::ptr::write_unaligned(self.params.add(offset as usize) as *mut T, value);
+            ffi_dispatch::native_mem_write(self.params, offset as usize, value);
         }
         Ok(())
     }
@@ -65,7 +65,7 @@ impl DynamicCall {
     /// a `DynamicCallResult` for reading output/return values.
     pub fn call(mut self) -> UikaResult<DynamicCallResult> {
         let code =
-            unsafe { ((*api().reflection).call_function)(self.obj, self.func, self.params) };
+            unsafe { ffi_dispatch::reflection_call_function(self.obj, self.func, self.params) };
         check_ffi(code)?;
         // Transfer params ownership to DynamicCallResult.
         let result = DynamicCallResult {
@@ -73,27 +73,27 @@ impl DynamicCall {
             params: self.params,
         };
         // Prevent Drop from double-freeing.
-        self.params = std::ptr::null_mut();
+        self.params = NATIVE_PTR_NULL;
         Ok(result)
     }
 
     /// Look up a named parameter and return its property handle + offset.
     fn find_param(&self, name: &str) -> UikaResult<(FPropertyHandle, u32)> {
         let prop = unsafe {
-            ((*api().reflection).get_function_param)(self.func, name.as_ptr(), name.len() as u32)
+            ffi_dispatch::reflection_get_function_param(self.func, name.as_ptr(), name.len() as u32)
         };
-        if prop.0.is_null() {
+        if prop.is_null() {
             return Err(UikaError::PropertyNotFound(name.to_string()));
         }
-        let offset = unsafe { ((*api().reflection).get_property_offset)(prop) };
+        let offset = unsafe { ffi_dispatch::reflection_get_property_offset(prop) };
         Ok((prop, offset))
     }
 }
 
 impl Drop for DynamicCall {
     fn drop(&mut self) {
-        if !self.params.is_null() {
-            unsafe { ((*api().reflection).free_params)(self.func, self.params) };
+        if !native_ptr_is_null(self.params) {
+            unsafe { ffi_dispatch::reflection_free_params(self.func, self.params) };
         }
     }
 }
@@ -102,7 +102,7 @@ impl Drop for DynamicCall {
 /// Use `get()` to read output parameters and return values.
 pub struct DynamicCallResult {
     func: UFunctionHandle,
-    params: *mut u8,
+    params: NativePtr,
 }
 
 impl DynamicCallResult {
@@ -112,23 +112,23 @@ impl DynamicCallResult {
     /// `T` must match the actual UE property type at the named parameter.
     pub fn get<T: Copy>(&self, name: &str) -> UikaResult<T> {
         let prop = unsafe {
-            ((*api().reflection).get_function_param)(self.func, name.as_ptr(), name.len() as u32)
+            ffi_dispatch::reflection_get_function_param(self.func, name.as_ptr(), name.len() as u32)
         };
-        if prop.0.is_null() {
+        if prop.is_null() {
             return Err(UikaError::PropertyNotFound(name.to_string()));
         }
-        let offset = unsafe { ((*api().reflection).get_property_offset)(prop) };
+        let offset = unsafe { ffi_dispatch::reflection_get_property_offset(prop) };
         // SAFETY: The offset is provided by UE reflection and the caller
         // guarantees T matches the property type.
-        let value = unsafe { std::ptr::read_unaligned(self.params.add(offset as usize) as *const T) };
+        let value = unsafe { ffi_dispatch::native_mem_read(self.params, offset as usize) };
         Ok(value)
     }
 }
 
 impl Drop for DynamicCallResult {
     fn drop(&mut self) {
-        if !self.params.is_null() {
-            unsafe { ((*api().reflection).free_params)(self.func, self.params) };
+        if !native_ptr_is_null(self.params) {
+            unsafe { ffi_dispatch::reflection_free_params(self.func, self.params) };
         }
     }
 }

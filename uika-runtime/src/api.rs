@@ -31,7 +31,11 @@ pub fn api() -> &'static UikaApiTable {
 }
 
 /// Returns true if the API table has been initialized.
+/// On wasm32, always returns true (imports are always available).
 #[inline]
 pub fn is_api_initialized() -> bool {
-    API.get().is_some()
+    #[cfg(not(target_arch = "wasm32"))]
+    { API.get().is_some() }
+    #[cfg(target_arch = "wasm32")]
+    { true }
 }

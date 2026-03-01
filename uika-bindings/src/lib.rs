@@ -10,5 +10,8 @@ pub mod core_ue;
 #[cfg(feature = "engine")]
 pub mod engine;
 
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_fn_imports;
+
 pub mod manual;
 

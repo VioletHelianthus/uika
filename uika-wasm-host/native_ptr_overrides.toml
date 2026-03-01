@@ -1,0 +1,7 @@
+# Functions whose *const u8 + u32 parameter pairs are native pointers,
+# NOT WASM memory buffers. These need NativePtr (i64) pass-through.
+#
+# NOTE: spawn_actor, spawn_actor_deferred, finish_spawning are NOT overridden
+# because the guest passes these buffers from Rust (WASM) memory — the host
+# reads them via read_guest_bytes and forwards to the C++ API.
+[overrides]

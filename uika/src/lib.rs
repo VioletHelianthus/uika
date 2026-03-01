@@ -37,13 +37,15 @@ extern "C" fn real_invoke_rust_function(
     params: *mut u8,
 ) {
     runtime::ffi_boundary((), || {
-        runtime::reify_registry::invoke_function(callback_id, obj, params);
+        // On native, NativePtr = *mut u8 so this is identity.
+        // On wasm32, this path isn't used (wasm entry points handle conversion).
+        runtime::reify_registry::invoke_function(callback_id, obj, params as runtime::ffi_dispatch::NativePtr);
     });
 }
 
 extern "C" fn real_invoke_delegate_callback(callback_id: u64, params: *mut u8) {
     runtime::ffi_boundary((), || {
-        runtime::delegate_registry::invoke(callback_id, params);
+        runtime::delegate_registry::invoke(callback_id, params as runtime::ffi_dispatch::NativePtr);
     });
 }
 
@@ -89,6 +91,9 @@ pub static __CALLBACKS: ffi::UikaRustCallbacks = ffi::UikaRustCallbacks {
 ///
 /// Stores the API table, registers all reified classes, and returns the
 /// callback table pointer. Returns null on failure.
+///
+/// When the `wasm-host` feature is enabled, this delegates to `uika-wasm-host`
+/// which loads `game.wasm` and forwards all callbacks into the WASM guest.
 pub fn init(api_table: *const ffi::UikaApiTable) -> *const ffi::UikaRustCallbacks {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if api_table.is_null() {
@@ -98,74 +103,202 @@ pub fn init(api_table: *const ffi::UikaApiTable) -> *const ffi::UikaRustCallback
         // Delegate API table storage to uika-runtime.
         runtime::init_api(api_table);
 
-        // Log greeting with compiled feature list.
-        let table = unsafe { &*api_table };
-        if !table.logging.is_null() {
-            let log = |msg: &[u8]| unsafe {
-                ((*table.logging).log)(0, msg.as_ptr(), msg.len() as u32);
-            };
-
-            macro_rules! feature_str {
-                ($($feat:literal),+ $(,)?) => {{
-                    let mut s = String::from("[Uika] Rust side initialized (features:");
-                    $(
-                        #[cfg(feature = $feat)]
-                        s.push_str(concat!(" ", $feat));
-                    )+
-                    s.push(')');
-                    s
-                }};
-            }
-            let msg = feature_str!(
-                "core", "engine", "physics-core", "input", "slate", "umg",
-                "niagara", "gameplay-abilities", "level-sequence", "cinematic", "movie"
-            );
-            log(msg.as_bytes());
+        #[cfg(feature = "wasm-host")]
+        {
+            // WASM host mode: load game.wasm and forward all callbacks into WASM.
+            uika_wasm_host::init(api_table)
         }
 
-        // Register all reified classes.
-        register_all_classes(table);
-
-        &__CALLBACKS as *const ffi::UikaRustCallbacks
+        #[cfg(not(feature = "wasm-host"))]
+        {
+            // Native mode: run game code directly in this DLL.
+            log_greeting();
+            register_all_classes();
+            &__CALLBACKS as *const ffi::UikaRustCallbacks
+        }
     }))
     .unwrap_or(std::ptr::null())
 }
 
-/// Register all Rust-defined UE classes via inventory auto-registration.
-fn register_all_classes(table: &ffi::UikaApiTable) {
-    if table.reify.is_null() {
-        return;
+/// Log the Uika greeting message with compiled feature list.
+#[cfg_attr(feature = "wasm-host", allow(dead_code))]
+fn log_greeting() {
+    macro_rules! feature_str {
+        ($($feat:literal),+ $(,)?) => {{
+            let mut s = String::from("[Uika] Rust side initialized (features:");
+            $(
+                #[cfg(feature = $feat)]
+                s.push_str(concat!(" ", $feat));
+            )+
+            s.push(')');
+            s
+        }};
     }
-    runtime::reify_registry::register_all_from_inventory(table);
+    let msg = feature_str!(
+        "core", "engine", "physics-core", "input", "slate", "umg",
+        "niagara", "gameplay-abilities", "level-sequence", "cinematic", "movie"
+    );
+    let bytes = msg.as_bytes();
+    unsafe {
+        runtime::ffi_dispatch::logging_log(0, bytes.as_ptr(), bytes.len() as u32);
+    }
+}
+
+/// Register all Rust-defined UE classes via inventory auto-registration.
+#[cfg_attr(feature = "wasm-host", allow(dead_code))]
+fn register_all_classes() {
+    runtime::reify_registry::register_all_from_inventory();
 }
 
 /// Shut down the Uika runtime. Called by the `entry!()` generated `uika_shutdown`.
 pub fn shutdown() {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        (__CALLBACKS.on_shutdown)();
+        #[cfg(feature = "wasm-host")]
+        {
+            uika_wasm_host::shutdown();
+        }
+        #[cfg(not(feature = "wasm-host"))]
+        {
+            (__CALLBACKS.on_shutdown)();
+        }
     }));
 }
 
-/// Generates `uika_init` / `uika_shutdown` DLL exports that delegate to
-/// `uika::init()` and `uika::shutdown()`.
+/// Initialize the Uika runtime for WASM guests. Called by `entry!()` wasm32 variant.
+///
+/// On wasm32, there is no API table — ffi_dispatch uses WASM imports directly.
+/// This just logs the greeting and registers all reified classes.
+#[cfg(target_arch = "wasm32")]
+pub fn wasm_init() {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // Log greeting with compiled feature list.
+        macro_rules! feature_str {
+            ($($feat:literal),+ $(,)?) => {{
+                let mut s = String::from("[Uika/WASM] Rust guest initialized (features:");
+                $(
+                    #[cfg(feature = $feat)]
+                    s.push_str(concat!(" ", $feat));
+                )+
+                s.push(')');
+                s
+            }};
+        }
+        let msg = feature_str!(
+            "core", "engine", "physics-core", "input", "slate", "umg",
+            "niagara", "gameplay-abilities", "level-sequence", "cinematic", "movie"
+        );
+        let bytes = msg.as_bytes();
+        unsafe {
+            runtime::ffi_dispatch::logging_log(0, bytes.as_ptr(), bytes.len() as u32);
+        }
+
+        // Register all reified classes.
+        register_all_classes();
+    }));
+}
+
+/// Reload the WASM module from disk without swapping the DLL.
+///
+/// When the `wasm-host` feature is enabled, this shuts down the current
+/// WASM instance and re-initializes from the latest `game.wasm` on disk.
+/// Returns `true` on success, `false` otherwise.
+pub fn reload_wasm() -> bool {
+    #[cfg(feature = "wasm-host")]
+    {
+        uika_wasm_host::reload()
+    }
+    #[cfg(not(feature = "wasm-host"))]
+    {
+        false
+    }
+}
+
+/// Generates DLL/WASM exports for the Uika runtime entry points.
 ///
 /// Place this at the top of your cdylib crate's `lib.rs`:
 /// ```ignore
 /// uika::entry!();
 /// ```
+///
+/// On native: generates `uika_init` / `uika_shutdown` DLL exports.
+/// On wasm32: generates WASM exports for init, shutdown, and callback forwarding.
 #[macro_export]
 macro_rules! entry {
     () => {
-        #[unsafe(no_mangle)]
-        pub extern "C" fn uika_init(
-            api_table: *const $crate::ffi::UikaApiTable,
-        ) -> *const $crate::ffi::UikaRustCallbacks {
-            $crate::init(api_table)
+        #[cfg(not(target_arch = "wasm32"))]
+        mod __uika_native_entry {
+            #[unsafe(no_mangle)]
+            pub extern "C" fn uika_init(
+                api_table: *const $crate::ffi::UikaApiTable,
+            ) -> *const $crate::ffi::UikaRustCallbacks {
+                $crate::init(api_table)
+            }
+
+            #[unsafe(no_mangle)]
+            pub extern "C" fn uika_shutdown() {
+                $crate::shutdown()
+            }
+
+            #[unsafe(no_mangle)]
+            pub extern "C" fn uika_reload_wasm() -> bool {
+                $crate::reload_wasm()
+            }
         }
 
-        #[unsafe(no_mangle)]
-        pub extern "C" fn uika_shutdown() {
-            $crate::shutdown()
+        #[cfg(target_arch = "wasm32")]
+        mod __uika_wasm_entry {
+            #[unsafe(no_mangle)]
+            pub extern "C" fn uika_wasm_init() {
+                $crate::wasm_init();
+            }
+
+            #[unsafe(no_mangle)]
+            pub extern "C" fn uika_on_shutdown() {
+                $crate::runtime::ffi_boundary((), || {
+                    $crate::runtime::reify_registry::clear_all();
+                    $crate::runtime::delegate_registry::clear_all();
+                    $crate::runtime::pinned::clear_all();
+                });
+            }
+
+            #[unsafe(no_mangle)]
+            pub extern "C" fn uika_invoke_delegate(callback_id: i64, params: i64) {
+                $crate::runtime::ffi_boundary((), || {
+                    $crate::runtime::delegate_registry::invoke(callback_id as u64, params as u64);
+                });
+            }
+
+            #[unsafe(no_mangle)]
+            pub extern "C" fn uika_invoke_function(callback_id: i64, obj: i64, params: i64) {
+                $crate::runtime::ffi_boundary((), || {
+                    let h = $crate::ffi::UObjectHandle::from_addr(obj as u64);
+                    $crate::runtime::reify_registry::invoke_function(callback_id as u64, h, params as u64);
+                });
+            }
+
+            #[unsafe(no_mangle)]
+            pub extern "C" fn uika_construct_instance(obj: i64, type_id: i64, is_cdo: i32) {
+                $crate::runtime::ffi_boundary((), || {
+                    let h = $crate::ffi::UObjectHandle::from_addr(obj as u64);
+                    $crate::runtime::reify_registry::construct_instance(h, type_id as u64);
+                });
+            }
+
+            #[unsafe(no_mangle)]
+            pub extern "C" fn uika_drop_instance(obj: i64, type_id: i64) {
+                $crate::runtime::ffi_boundary((), || {
+                    let h = $crate::ffi::UObjectHandle::from_addr(obj as u64);
+                    $crate::runtime::reify_registry::drop_instance(h, type_id as u64);
+                });
+            }
+
+            #[unsafe(no_mangle)]
+            pub extern "C" fn uika_notify_pinned_destroyed(obj: i64) {
+                $crate::runtime::ffi_boundary((), || {
+                    let h = $crate::ffi::UObjectHandle::from_addr(obj as u64);
+                    $crate::runtime::pinned::notify_pinned_destroyed(h);
+                });
+            }
         }
     };
 }

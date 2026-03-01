@@ -310,7 +310,7 @@ struct FUikaWorldApi
     UikaUObjectHandle (*spawn_actor)(UikaUObjectHandle world, UikaUClassHandle cls,
         const uint8* transform_buf, uint32 transform_size, UikaUObjectHandle owner);
     EUikaErrorCode (*get_all_actors_of_class)(UikaUObjectHandle world, UikaUClassHandle cls,
-        UikaUObjectHandle* out_buf, uint32 buf_capacity, uint32* out_count);
+        uint8* out_buf, uint32 buf_byte_size, uint32* out_count);
     UikaUObjectHandle (*find_object)(UikaUClassHandle cls, const uint8* path_utf8, uint32 path_len);
     UikaUObjectHandle (*load_object)(UikaUClassHandle cls, const uint8* path_utf8, uint32 path_len);
     UikaUObjectHandle (*get_world)(UikaUObjectHandle actor);

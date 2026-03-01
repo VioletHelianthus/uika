@@ -12,11 +12,13 @@ uika-runtime = { version = "0.1.0", path = "../uika-runtime" }
 uika-macros = { version = "0.1.0", path = "../uika-macros" }
 uika-bindings = { version = "0.1.0", path = "../uika-bindings", default-features = false }
 uika-ue-flags = { version = "0.1.0", path = "../uika-ue-flags" }
+uika-wasm-host = { version = "0.1.0", path = "../uika-wasm-host", optional = true }
 glam = "0.29"
 inventory = "0.3"
 
 [features]
 default = ["core", "engine"]
+wasm-host = ["dep:uika-wasm-host"]
 core = ["uika-bindings/core"]
 engine = ["core", "uika-bindings/engine"]
 physics-core = ["engine", "uika-bindings/physics-core"]

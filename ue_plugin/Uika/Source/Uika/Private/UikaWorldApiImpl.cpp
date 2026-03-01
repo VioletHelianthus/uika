@@ -55,8 +55,8 @@ static UikaUObjectHandle SpawnActorImpl(
 static EUikaErrorCode GetAllActorsOfClassImpl(
     UikaUObjectHandle WorldHandle,
     UikaUClassHandle ClsHandle,
-    UikaUObjectHandle* OutBuf,
-    uint32 BufCapacity,
+    uint8* OutBuf,
+    uint32 BufByteSize,
     uint32* OutCount)
 {
     UWorld* World = Cast<UWorld>(static_cast<UObject*>(WorldHandle.ptr));
@@ -67,12 +67,14 @@ static EUikaErrorCode GetAllActorsOfClassImpl(
         return EUikaErrorCode::NullArgument;
     }
 
+    const uint32 BufCapacity = BufByteSize / static_cast<uint32>(sizeof(UikaUObjectHandle));
+    UikaUObjectHandle* HandleBuf = reinterpret_cast<UikaUObjectHandle*>(OutBuf);
     uint32 Count = 0;
     for (TActorIterator<AActor> It(World, Class); It; ++It)
     {
-        if (OutBuf && Count < BufCapacity)
+        if (HandleBuf && Count < BufCapacity)
         {
-            OutBuf[Count] = UikaUObjectHandle{ *It };
+            HandleBuf[Count] = UikaUObjectHandle{ *It };
         }
         ++Count;
     }

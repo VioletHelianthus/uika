@@ -4,9 +4,9 @@
 
 use std::marker::PhantomData;
 
-use uika_ffi::{FWeakObjectHandle, UObjectHandle};
+use uika_ffi::FWeakObjectHandle;
 
-use crate::api::api;
+use crate::ffi_dispatch;
 use crate::object_ref::UObjectRef;
 use crate::traits::UeClass;
 
@@ -28,7 +28,7 @@ unsafe impl<T: UeClass> Send for TWeakObjectPtr<T> {}
 impl<T: UeClass> TWeakObjectPtr<T> {
     /// Create a weak pointer from a strong UObjectRef.
     pub fn from_ref(obj: &UObjectRef<T>) -> Self {
-        let handle = unsafe { ((*api().core).make_weak)(obj.raw()) };
+        let handle = unsafe { ffi_dispatch::core_make_weak(obj.raw()) };
         TWeakObjectPtr {
             handle,
             _marker: PhantomData,
@@ -38,8 +38,8 @@ impl<T: UeClass> TWeakObjectPtr<T> {
     /// Attempt to resolve to a strong reference. Returns `None` if the
     /// object has been garbage collected.
     pub fn get(&self) -> Option<UObjectRef<T>> {
-        let obj = unsafe { ((*api().core).resolve_weak)(self.handle) };
-        if obj == (UObjectHandle(std::ptr::null_mut())) {
+        let obj = unsafe { ffi_dispatch::core_resolve_weak(self.handle) };
+        if obj.is_null() {
             None
         } else {
             Some(unsafe { UObjectRef::from_raw(obj) })
@@ -48,7 +48,7 @@ impl<T: UeClass> TWeakObjectPtr<T> {
 
     /// Check if the referenced object is still alive.
     pub fn is_valid(&self) -> bool {
-        unsafe { ((*api().core).is_weak_valid)(self.handle) }
+        unsafe { ffi_dispatch::core_is_weak_valid(self.handle) }
     }
 
     /// Get the underlying FFI handle.

@@ -7,6 +7,7 @@ pub mod properties;
 pub mod delegates;
 pub mod module;
 pub mod func_ids;
+pub mod wasm_gen;
 
 use std::path::Path;
 
@@ -67,6 +68,26 @@ pub fn generate(ctx: &CodegenContext, out_dir: &Path) {
     let func_ids_code = func_ids::generate_rust_func_ids(&ctx.func_table);
     std::fs::write(out_dir.join("func_ids.rs"), func_ids_code)
         .expect("Failed to write func_ids.rs");
+
+    // Generate wasm_fn_imports.rs (WASM extern imports for codegen functions)
+    let wasm_imports_code = wasm_gen::generate_wasm_fn_imports(&ctx.func_table, ctx);
+    std::fs::write(out_dir.join("wasm_fn_imports.rs"), wasm_imports_code)
+        .expect("Failed to write wasm_fn_imports.rs");
+
+    // Generate wasm_host_codegen_funcs.rs (host function registration)
+    // Output to uika-wasm-host/src/generated/ (relative to uika-bindings/src/)
+    let wasm_host_dir = out_dir
+        .parent()  // uika-bindings/
+        .and_then(|p| p.parent())  // uika/
+        .map(|p| p.join("uika-wasm-host").join("src").join("generated"));
+    if let Some(wasm_host_dir) = wasm_host_dir {
+        if wasm_host_dir.parent().map_or(false, |p| p.exists()) {
+            std::fs::create_dir_all(&wasm_host_dir).ok();
+            let host_funcs_code = wasm_gen::generate_wasm_host_funcs(&ctx.func_table, ctx);
+            std::fs::write(wasm_host_dir.join("codegen_host_funcs.rs"), host_funcs_code)
+                .expect("Failed to write codegen_host_funcs.rs");
+        }
+    }
 
     // Generate top-level lib.rs
     let lib_code = module::generate_lib_rs(ctx);

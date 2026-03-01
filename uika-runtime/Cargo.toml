@@ -10,3 +10,6 @@ description = "Safe Rust runtime for uika (object refs, lifecycle, dynamic calls
 uika-ffi = { version = "0.1.0", path = "../uika-ffi" }
 glam = "0.29"
 inventory = "0.3"
+
+[build-dependencies]
+uika-api-parse = { path = "../uika-api-parse" }

@@ -17,7 +17,7 @@ pub fn generate_class(class: &ClassInfo, ctx: &CodegenContext) -> String {
 
     // Import traits and types from own module and all other enabled modules
     out.push_str("use super::*;\n");
-    out.push_str("use uika_runtime::{UeClass, UeStruct, UeEnum, ValidHandle, Pinned, Checked};\n");
+    out.push_str("use uika_runtime::{UeClass, UeStruct, UeEnum, UeHandle, ValidHandle, Pinned, Checked};\n");
     let current_module = ctx.package_to_module.get(&class.package).map(|s| s.as_str()).unwrap_or("");
     for module in &ctx.enabled_modules {
         if module != current_module {
@@ -47,7 +47,7 @@ pub fn generate_class(class: &ClassInfo, ctx: &CodegenContext) -> String {
          \x20   fn static_class() -> uika_runtime::UClassHandle {{\n\
          \x20       static CACHE: std::sync::OnceLock<uika_runtime::UClassHandle> = std::sync::OnceLock::new();\n\
          \x20       *CACHE.get_or_init(|| unsafe {{\n\
-         \x20           ((*uika_runtime::api().reflection).get_static_class)({byte_lit}.as_ptr(), {name_bytes_len})\n\
+         \x20           uika_runtime::ffi_dispatch::reflection_get_static_class({byte_lit}.as_ptr(), {name_bytes_len})\n\
          \x20       }})\n\
          \x20   }}\n\
          }}\n\n"
@@ -169,7 +169,7 @@ pub fn generate_class(class: &ClassInfo, ctx: &CodegenContext) -> String {
 // Container param helpers
 // ---------------------------------------------------------------------------
 
-fn is_container_param(param: &ParamInfo) -> bool {
+pub(super) fn is_container_param(param: &ParamInfo) -> bool {
     matches!(
         param.prop_type.as_str(),
         "ArrayProperty" | "MapProperty" | "SetProperty"
@@ -177,7 +177,7 @@ fn is_container_param(param: &ParamInfo) -> bool {
 }
 
 /// Resolve the Rust input type for a container parameter (e.g., `&[Actor]`).
-fn container_param_input_type(param: &ParamInfo, ctx: &CodegenContext) -> Option<String> {
+pub(super) fn container_param_input_type(param: &ParamInfo, ctx: &CodegenContext) -> Option<String> {
     match param.prop_type.as_str() {
         "ArrayProperty" => {
             let inner = param.inner_prop.as_ref()?;
@@ -201,7 +201,7 @@ fn container_param_input_type(param: &ParamInfo, ctx: &CodegenContext) -> Option
 }
 
 /// Resolve the Rust output type for a container parameter (e.g., `Vec<Actor>`).
-fn container_param_output_type(param: &ParamInfo, ctx: &CodegenContext) -> Option<String> {
+pub(super) fn container_param_output_type(param: &ParamInfo, ctx: &CodegenContext) -> Option<String> {
     match param.prop_type.as_str() {
         "ArrayProperty" => {
             let inner = param.inner_prop.as_ref()?;
@@ -226,7 +226,7 @@ fn container_param_output_type(param: &ParamInfo, ctx: &CodegenContext) -> Optio
 
 /// Resolve the element type string for use in container type construction
 /// (e.g., `UObjectRef<Actor>` for UeArray, or `K, V` for UeMap).
-fn container_elem_type_str(param: &ParamInfo, ctx: &CodegenContext) -> Option<String> {
+pub(super) fn container_elem_type_str(param: &ParamInfo, ctx: &CodegenContext) -> Option<String> {
     match param.prop_type.as_str() {
         "ArrayProperty" => {
             let inner = param.inner_prop.as_ref()?;
@@ -277,7 +277,7 @@ fn scalar_out_rust_type_ctx(mapped: &MappedType, struct_name: Option<&str>, ctx:
 }
 
 /// Check if a StructOpaque return/out can use OwnedStruct (has valid UeStruct impl).
-fn is_struct_owned(struct_name: Option<&str>, ctx: &CodegenContext) -> bool {
+pub(super) fn is_struct_owned(struct_name: Option<&str>, ctx: &CodegenContext) -> bool {
     struct_name.map_or(false, |sn| {
         ctx.structs.get(sn).map_or(false, |si| si.has_static_struct)
     })
@@ -286,7 +286,7 @@ fn is_struct_owned(struct_name: Option<&str>, ctx: &CodegenContext) -> bool {
 /// Check if a scalar Out/InOut param should be included in the return tuple.
 /// InOut StructOpaque params write back through the mutable pointer, so they
 /// are NOT included in the return tuple.
-fn is_scalar_output_returnable(dir: ParamDirection, mapped: &MappedType) -> bool {
+pub(super) fn is_scalar_output_returnable(dir: ParamDirection, mapped: &MappedType) -> bool {
     if dir == ParamDirection::InOut && mapped.ffi_to_rust == ConversionKind::StructOpaque {
         return false;
     }
@@ -472,6 +472,9 @@ fn generate_scalar_function(out: &mut String, entry: &FuncEntry, _class_name: &s
         out.push_str(&format!("        let {pname} = {pname}.unwrap_or({default_expr});\n"));
     }
 
+    // --- Native path (func_table transmute) ---
+    out.push_str("        #[cfg(not(target_arch = \"wasm32\"))]\n        {\n");
+
     // Build FFI fn type signature
     let mut ffi_params = String::new();
     if !is_static {
@@ -548,7 +551,7 @@ fn generate_scalar_function(out: &mut String, entry: &FuncEntry, _class_name: &s
         let rm = ret_mapped.as_ref().expect("return param must have mapped type");
         match rm.ffi_to_rust {
             ConversionKind::ObjectRef => {
-                out.push_str("        let mut _ret = uika_runtime::UObjectHandle(std::ptr::null_mut());\n");
+                out.push_str("        let mut _ret = uika_runtime::UObjectHandle::null();\n");
             }
             ConversionKind::StringUtf8 => {
                 out.push_str("        let mut _ret_buf = vec![0u8; 512];\n");
@@ -579,7 +582,7 @@ fn generate_scalar_function(out: &mut String, entry: &FuncEntry, _class_name: &s
                     out.push_str(&format!("        let mut {pname}_len: u32 = 0;\n"));
                 }
                 ConversionKind::ObjectRef => {
-                    out.push_str(&format!("        let mut {pname} = uika_runtime::UObjectHandle(std::ptr::null_mut());\n"));
+                    out.push_str(&format!("        let mut {pname} = uika_runtime::UObjectHandle::null();\n"));
                 }
                 ConversionKind::EnumCast => {
                     out.push_str(&format!("        let mut {pname}: {} = 0;\n", mapped.rust_ffi_type));
@@ -764,6 +767,17 @@ fn generate_scalar_function(out: &mut String, entry: &FuncEntry, _class_name: &s
             _ => out.push_str(&format!("        ({})\n", return_parts.join(", "))),
         }
     }
+
+    out.push_str("        }\n"); // close native cfg block
+
+    // --- WASM path (extern import call) ---
+    out.push_str("        #[cfg(target_arch = \"wasm32\")]\n        {\n");
+    if super::wasm_gen::wasm_func_within_param_limit(entry, ctx) {
+        super::wasm_gen::generate_wasm_scalar_body(out, entry, ctx);
+    } else {
+        out.push_str("        unimplemented!(\"WASM: function has too many params for func_wrap\");\n");
+    }
+    out.push_str("        }\n"); // close wasm32 cfg block
 
     out.push_str("    }\n\n");
 }
@@ -961,6 +975,9 @@ fn generate_container_function(out: &mut String, entry: &FuncEntry, class_name: 
         out.push_str(&format!("        let {pname} = {pname}.unwrap_or({default_expr});\n"));
     }
 
+    // --- Native path (func_table transmute) ---
+    out.push_str("        #[cfg(not(target_arch = \"wasm32\"))]\n        {\n");
+
     // === OnceLock for container FPropertyHandles ===
     let ue_name_len = ue_name.len();
     let ue_name_byte_lit = format!("b\"{}\\0\"", ue_name);
@@ -1069,7 +1086,7 @@ fn generate_container_function(out: &mut String, entry: &FuncEntry, class_name: 
     if let Some(rm) = ret_mapped {
         match rm.ffi_to_rust {
             ConversionKind::ObjectRef => {
-                out.push_str("        let mut __scalar_ret = uika_runtime::UObjectHandle(std::ptr::null_mut());\n");
+                out.push_str("        let mut __scalar_ret = uika_runtime::UObjectHandle::null();\n");
             }
             ConversionKind::StringUtf8 => {
                 out.push_str("        let mut __scalar_ret_buf = vec![0u8; 512];\n");
@@ -1103,7 +1120,7 @@ fn generate_container_function(out: &mut String, entry: &FuncEntry, class_name: 
                     out.push_str(&format!("        let mut {pname}_len: u32 = 0;\n"));
                 }
                 ConversionKind::ObjectRef => {
-                    out.push_str(&format!("        let mut {pname} = uika_runtime::UObjectHandle(std::ptr::null_mut());\n"));
+                    out.push_str(&format!("        let mut {pname} = uika_runtime::UObjectHandle::null();\n"));
                 }
                 ConversionKind::EnumCast => {
                     out.push_str(&format!("        let mut {pname}: {} = 0;\n", mapped.rust_ffi_type));
@@ -1229,6 +1246,17 @@ fn generate_container_function(out: &mut String, entry: &FuncEntry, class_name: 
 
     // === Return ===
     emit_container_return(out, return_param, ret_mapped, &container_params, &func.params, ctx);
+
+    out.push_str("        }\n"); // close native cfg block
+
+    // --- WASM path (extern import call) ---
+    out.push_str("        #[cfg(target_arch = \"wasm32\")]\n        {\n");
+    if super::wasm_gen::wasm_func_within_param_limit(entry, ctx) {
+        super::wasm_gen::generate_wasm_container_body(out, entry, class_name, ctx);
+    } else {
+        out.push_str("        unimplemented!(\"WASM: function has too many params for func_wrap\");\n");
+    }
+    out.push_str("        }\n"); // close wasm32 cfg block
 
     out.push_str("    }\n\n");
 }
@@ -1448,7 +1476,7 @@ fn emit_container_return(
 }
 
 /// Map a ParamInfo to its MappedType (convenience helper).
-fn map_param(param: &ParamInfo) -> MappedType {
+pub(super) fn map_param(param: &ParamInfo) -> MappedType {
     type_map::map_property_type(
         &param.prop_type,
         param.class_name.as_deref(),

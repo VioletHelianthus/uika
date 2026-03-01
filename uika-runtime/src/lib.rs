@@ -5,6 +5,12 @@
 pub mod api;
 pub mod error;
 pub mod traits;
+
+/// FFI dispatch wrappers: cfg-gated between native API table and WASM extern imports.
+#[allow(unused_imports, unused_unsafe, unsafe_op_in_unsafe_fn, clippy::all)]
+pub mod ffi_dispatch {
+    include!(concat!(env!("OUT_DIR"), "/ffi_dispatch.rs"));
+}
 pub mod object_ref;
 pub mod struct_ref;
 pub mod pinned;

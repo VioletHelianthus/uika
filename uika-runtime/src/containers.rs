@@ -14,8 +14,8 @@ use uika_ffi::{FPropertyHandle, UObjectHandle, UikaErrorCode};
 /// Used for stack-allocated FFI transport buffers to avoid heap allocation.
 const MAX_ELEM_BUF: usize = 4096;
 
-use crate::api::api;
 use crate::error::{check_ffi, ffi_infallible, UikaError, UikaResult};
+use crate::ffi_dispatch;
 use crate::object_ref::UObjectRef;
 use crate::struct_ref::UStructRef;
 use crate::traits::{UeClass, UeStruct};
@@ -193,7 +193,7 @@ impl<T: ContainerElement> UeArray<T> {
 
     /// Returns the number of elements in the array.
     pub fn len(&self) -> UikaResult<usize> {
-        let n = unsafe { ((*api().container).array_len)(self.owner, self.prop) };
+        let n = unsafe { ffi_dispatch::container_array_len(self.owner, self.prop) };
         if n < 0 {
             return Err(UikaError::ObjectDestroyed);
         }
@@ -210,7 +210,7 @@ impl<T: ContainerElement> UeArray<T> {
         let mut buf = [0u8; MAX_ELEM_BUF];
         let mut written: u32 = 0;
         check_ffi(unsafe {
-            ((*api().container).array_get)(
+            ffi_dispatch::container_array_get(
                 self.owner,
                 self.prop,
                 index as i32,
@@ -228,7 +228,7 @@ impl<T: ContainerElement> UeArray<T> {
         // SAFETY: buf is freshly allocated with BUF_SIZE bytes.
         let written = unsafe { val.write_to_buf(buf.as_mut_ptr()) };
         check_ffi(unsafe {
-            ((*api().container).array_set)(
+            ffi_dispatch::container_array_set(
                 self.owner,
                 self.prop,
                 index as i32,
@@ -244,20 +244,20 @@ impl<T: ContainerElement> UeArray<T> {
         // SAFETY: buf is freshly allocated with BUF_SIZE bytes.
         let written = unsafe { val.write_to_buf(buf.as_mut_ptr()) };
         check_ffi(unsafe {
-            ((*api().container).array_add)(self.owner, self.prop, buf.as_ptr(), written)
+            ffi_dispatch::container_array_add(self.owner, self.prop, buf.as_ptr(), written)
         })
     }
 
     /// Remove the element at `index`, shifting subsequent elements down.
     pub fn remove(&self, index: usize) -> UikaResult<()> {
         check_ffi(unsafe {
-            ((*api().container).array_remove)(self.owner, self.prop, index as i32)
+            ffi_dispatch::container_array_remove(self.owner, self.prop, index as i32)
         })
     }
 
     /// Remove all elements from the array.
     pub fn clear(&self) -> UikaResult<()> {
-        check_ffi(unsafe { ((*api().container).array_clear)(self.owner, self.prop) })
+        check_ffi(unsafe { ffi_dispatch::container_array_clear(self.owner, self.prop) })
     }
 
     /// Returns an iterator over the elements.
@@ -496,7 +496,7 @@ impl<T: ContainerElement> UeArray<T> {
             len * (T::BUF_SIZE as usize + 4)
         };
         let (buf, count) = bulk_copy_with_retry(estimate, |out, size, written, cnt| unsafe {
-            ((*api().container).array_copy_all)(owner, prop, out, size, written, cnt)
+            ffi_dispatch::container_array_copy_all(owner, prop, out, size, written, cnt)
         })?;
         // Negative count = raw format from C++
         let (actual_count, raw_elem_size) = if count < 0 {
@@ -536,7 +536,7 @@ impl<T: ContainerElement> UeArray<T> {
             len * (T::BUF_SIZE as usize + 4)
         };
         let (buf, count) = bulk_copy_with_retry(estimate, |out, size, written, cnt| unsafe {
-            ((*api().container).array_copy_all)(owner, prop, out, size, written, cnt)
+            ffi_dispatch::container_array_copy_all(owner, prop, out, size, written, cnt)
         })?;
         let (actual_count, raw_elem_size) = if count < 0 {
             ((-count) as usize, T::BUF_SIZE as usize)
@@ -567,7 +567,7 @@ impl<T: ContainerElement> UeArray<T> {
             }
             // Negative count signals raw format to C++
             check_ffi(unsafe {
-                ((*api().container).array_set_all)(
+                ffi_dispatch::container_array_set_all(
                     self.owner,
                     self.prop,
                     buf.as_ptr(),
@@ -585,7 +585,7 @@ impl<T: ContainerElement> UeArray<T> {
                 buf.extend_from_slice(&elem_buf[..written as usize]);
             }
             check_ffi(unsafe {
-                ((*api().container).array_set_all)(
+                ffi_dispatch::container_array_set_all(
                     self.owner,
                     self.prop,
                     buf.as_ptr(),
@@ -621,7 +621,7 @@ impl<K: ContainerElement, V: ContainerElement> UeMap<K, V> {
 
     /// Returns the number of key-value pairs in the map.
     pub fn len(&self) -> UikaResult<usize> {
-        let n = unsafe { ((*api().container).map_len)(self.owner, self.prop) };
+        let n = unsafe { ffi_dispatch::container_map_len(self.owner, self.prop) };
         if n < 0 {
             return Err(UikaError::ObjectDestroyed);
         }
@@ -641,7 +641,7 @@ impl<K: ContainerElement, V: ContainerElement> UeMap<K, V> {
         let mut val_written: u32 = 0;
 
         check_ffi(unsafe {
-            ((*api().container).map_find)(
+            ffi_dispatch::container_map_find(
                 self.owner,
                 self.prop,
                 key_buf.as_ptr(),
@@ -662,7 +662,7 @@ impl<K: ContainerElement, V: ContainerElement> UeMap<K, V> {
         let val_written = unsafe { val.write_to_buf(val_buf.as_mut_ptr()) };
 
         check_ffi(unsafe {
-            ((*api().container).map_add)(
+            ffi_dispatch::container_map_add(
                 self.owner,
                 self.prop,
                 key_buf.as_ptr(),
@@ -679,7 +679,7 @@ impl<K: ContainerElement, V: ContainerElement> UeMap<K, V> {
         let key_written = unsafe { key.write_to_buf(key_buf.as_mut_ptr()) };
 
         check_ffi(unsafe {
-            ((*api().container).map_remove)(
+            ffi_dispatch::container_map_remove(
                 self.owner,
                 self.prop,
                 key_buf.as_ptr(),
@@ -690,7 +690,7 @@ impl<K: ContainerElement, V: ContainerElement> UeMap<K, V> {
 
     /// Remove all key-value pairs.
     pub fn clear(&self) -> UikaResult<()> {
-        check_ffi(unsafe { ((*api().container).map_clear)(self.owner, self.prop) })
+        check_ffi(unsafe { ffi_dispatch::container_map_clear(self.owner, self.prop) })
     }
 
     /// Get the key-value pair at logical index (for iteration).
@@ -701,7 +701,7 @@ impl<K: ContainerElement, V: ContainerElement> UeMap<K, V> {
         let mut val_written: u32 = 0;
 
         check_ffi(unsafe {
-            ((*api().container).map_get_pair)(
+            ffi_dispatch::container_map_get_pair(
                 self.owner,
                 self.prop,
                 logical_index as i32,
@@ -789,7 +789,7 @@ impl<K: ContainerElement, V: ContainerElement> UeMap<K, V> {
         let prop = self.prop;
         let estimate = len * (K::BUF_SIZE as usize + V::BUF_SIZE as usize + 8);
         let (buf, count) = bulk_copy_with_retry(estimate, |out, size, written, cnt| unsafe {
-            ((*api().container).map_copy_all)(owner, prop, out, size, written, cnt)
+            ffi_dispatch::container_map_copy_all(owner, prop, out, size, written, cnt)
         })?;
         Ok(BulkMapIter {
             buf,
@@ -838,7 +838,7 @@ impl<T: ContainerElement> UeSet<T> {
 
     /// Returns the number of elements in the set.
     pub fn len(&self) -> UikaResult<usize> {
-        let n = unsafe { ((*api().container).set_len)(self.owner, self.prop) };
+        let n = unsafe { ffi_dispatch::container_set_len(self.owner, self.prop) };
         if n < 0 {
             return Err(UikaError::ObjectDestroyed);
         }
@@ -854,7 +854,7 @@ impl<T: ContainerElement> UeSet<T> {
         let mut buf = [0u8; MAX_ELEM_BUF];
         let written = unsafe { val.write_to_buf(buf.as_mut_ptr()) };
         Ok(unsafe {
-            ((*api().container).set_contains)(self.owner, self.prop, buf.as_ptr(), written)
+            ffi_dispatch::container_set_contains(self.owner, self.prop, buf.as_ptr(), written)
         })
     }
 
@@ -863,7 +863,7 @@ impl<T: ContainerElement> UeSet<T> {
         let mut buf = [0u8; MAX_ELEM_BUF];
         let written = unsafe { val.write_to_buf(buf.as_mut_ptr()) };
         check_ffi(unsafe {
-            ((*api().container).set_add)(self.owner, self.prop, buf.as_ptr(), written)
+            ffi_dispatch::container_set_add(self.owner, self.prop, buf.as_ptr(), written)
         })
     }
 
@@ -872,13 +872,13 @@ impl<T: ContainerElement> UeSet<T> {
         let mut buf = [0u8; MAX_ELEM_BUF];
         let written = unsafe { val.write_to_buf(buf.as_mut_ptr()) };
         check_ffi(unsafe {
-            ((*api().container).set_remove)(self.owner, self.prop, buf.as_ptr(), written)
+            ffi_dispatch::container_set_remove(self.owner, self.prop, buf.as_ptr(), written)
         })
     }
 
     /// Remove all elements from the set.
     pub fn clear(&self) -> UikaResult<()> {
-        check_ffi(unsafe { ((*api().container).set_clear)(self.owner, self.prop) })
+        check_ffi(unsafe { ffi_dispatch::container_set_clear(self.owner, self.prop) })
     }
 
     /// Get the element at logical index (for iteration).
@@ -886,7 +886,7 @@ impl<T: ContainerElement> UeSet<T> {
         let mut buf = [0u8; MAX_ELEM_BUF];
         let mut written: u32 = 0;
         check_ffi(unsafe {
-            ((*api().container).set_get_element)(
+            ffi_dispatch::container_set_get_element(
                 self.owner,
                 self.prop,
                 logical_index as i32,
@@ -966,7 +966,7 @@ impl<T: ContainerElement> UeSet<T> {
         let prop = self.prop;
         let estimate = len * (T::BUF_SIZE as usize + 4);
         let (buf, count) = bulk_copy_with_retry(estimate, |out, size, written, cnt| unsafe {
-            ((*api().container).set_copy_all)(owner, prop, out, size, written, cnt)
+            ffi_dispatch::container_set_copy_all(owner, prop, out, size, written, cnt)
         })?;
         Ok(BulkSetIter {
             buf,
@@ -1000,9 +1000,27 @@ impl<T: ContainerElement + Hash + Eq> UeSet<T> {
 /// Since UE structs are opaque (their layout is managed by C++), this type
 /// holds the raw bytes copied from the container. Use [`as_ref`](Self::as_ref)
 /// to get a `UStructRef<T>` for property access.
+///
+/// On native, the struct data lives in Rust (process) memory — same address space
+/// as C++. On wasm32, the struct is allocated in native (host) memory so that C++
+/// property API functions can access it directly. WASM guest code reads/writes the
+/// bytes through `native_mem_read`/`native_mem_write` host functions.
 pub struct OwnedStruct<T: UeStruct> {
+    /// On native: raw struct bytes in Rust heap.
+    /// On wasm32: not used (empty vec); data lives in native memory at `native_ptr`.
+    #[cfg(not(target_arch = "wasm32"))]
     data: Vec<u8>,
+    #[cfg(not(target_arch = "wasm32"))]
     needs_destroy: bool,
+
+    /// On wasm32: native (host) memory pointer and size.
+    #[cfg(target_arch = "wasm32")]
+    native_ptr: u64,
+    #[cfg(target_arch = "wasm32")]
+    size: u32,
+    #[cfg(target_arch = "wasm32")]
+    needs_destroy: bool,
+
     _marker: PhantomData<T>,
 }
 
@@ -1015,16 +1033,33 @@ impl<T: UeStruct> OwnedStruct<T> {
     /// The struct is destroyed via `UScriptStruct::DestroyStruct` on drop.
     pub fn new() -> Self {
         let ustruct = T::static_struct();
-        let size = unsafe { ((*api().reflection).get_struct_size)(ustruct) };
+        let size = unsafe { ffi_dispatch::reflection_get_struct_size(ustruct) };
         debug_assert!(size > 0, "get_struct_size returned 0 for {}", std::any::type_name::<T>());
-        let mut data = vec![0u8; size as usize];
-        ffi_infallible(unsafe {
-            ((*api().reflection).initialize_struct)(ustruct, data.as_mut_ptr())
-        });
-        OwnedStruct {
-            data,
-            needs_destroy: true,
-            _marker: PhantomData,
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut data = vec![0u8; size as usize];
+            ffi_infallible(unsafe {
+                ffi_dispatch::reflection_initialize_struct(ustruct, data.as_mut_ptr())
+            });
+            OwnedStruct {
+                data,
+                needs_destroy: true,
+                _marker: PhantomData,
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Allocate and initialize in native (host) memory so C++ property API
+            // can access the struct directly.
+            let native_ptr = unsafe { ffi_dispatch::uika_struct_alloc(ustruct.0 as i64) } as u64;
+            OwnedStruct {
+                native_ptr,
+                size,
+                needs_destroy: true,
+                _marker: PhantomData,
+            }
         }
     }
 
@@ -1033,42 +1068,166 @@ impl<T: UeStruct> OwnedStruct<T> {
     /// The data is assumed to already be initialized by C++ — no destructor
     /// will be called on drop.
     pub fn from_bytes(data: Vec<u8>) -> Self {
-        OwnedStruct {
-            data,
-            needs_destroy: false,
-            _marker: PhantomData,
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            OwnedStruct {
+                data,
+                needs_destroy: false,
+                _marker: PhantomData,
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Allocate native memory and copy the bytes there.
+            let ustruct = T::static_struct();
+            // Use the actual allocation size (from get_struct_size), not data.len(),
+            // so that deallocation uses the correct size.
+            let alloc_size = unsafe { ffi_dispatch::reflection_get_struct_size(ustruct) };
+            let native_ptr = unsafe { ffi_dispatch::uika_struct_alloc(ustruct.0 as i64) } as u64;
+            // Write the provided bytes into native memory (may be smaller than alloc_size).
+            let copy_len = (data.len() as u32).min(alloc_size);
+            unsafe {
+                ffi_dispatch::uika_write_native_mem(
+                    native_ptr as i64,
+                    data.as_ptr() as i32,
+                    copy_len as i32,
+                );
+            }
+            OwnedStruct {
+                native_ptr,
+                size: alloc_size,
+                needs_destroy: false, // from_bytes data is raw copy, no DestroyStruct needed
+                _marker: PhantomData,
+            }
         }
     }
 
     /// Get a `UStructRef<T>` for property access on this struct data.
     pub fn as_ref(&self) -> UStructRef<T> {
-        unsafe { UStructRef::from_raw(self.data.as_ptr() as *mut u8) }
+        #[cfg(not(target_arch = "wasm32"))]
+        { unsafe { UStructRef::from_raw(self.data.as_ptr() as *mut u8) } }
+
+        #[cfg(target_arch = "wasm32")]
+        { unsafe { UStructRef::from_native_ptr(self.native_ptr) } }
     }
 
     /// Get the raw bytes of the struct data.
+    ///
+    /// On native, returns a direct slice. On wasm32, copies from native memory
+    /// into a new Vec (since the data lives in host memory).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn as_bytes(&self) -> &[u8] {
         &self.data
+    }
+
+    /// Get the raw bytes of the struct data as an owned Vec.
+    ///
+    /// On native, copies from the local buffer. On wasm32, copies from native
+    /// (host) memory into WASM linear memory.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        #[cfg(not(target_arch = "wasm32"))]
+        { self.data.clone() }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut buf = vec![0u8; self.size as usize];
+            unsafe {
+                ffi_dispatch::uika_read_native_mem(
+                    self.native_ptr as i64,
+                    buf.as_mut_ptr() as i32,
+                    self.size as i32,
+                );
+            }
+            buf
+        }
+    }
+
+    /// Get the native pointer to the struct data.
+    /// On native: the data pointer. On wasm32: the native (host) memory pointer.
+    #[cfg(target_arch = "wasm32")]
+    pub fn native_ptr(&self) -> u64 {
+        self.native_ptr
+    }
+
+    /// Get the struct size in bytes.
+    #[cfg(target_arch = "wasm32")]
+    pub fn size(&self) -> u32 {
+        self.size
     }
 }
 
 impl<T: UeStruct> Clone for OwnedStruct<T> {
     fn clone(&self) -> Self {
-        OwnedStruct {
-            data: self.data.clone(),
-            needs_destroy: false,
-            _marker: PhantomData,
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            OwnedStruct {
+                data: self.data.clone(),
+                needs_destroy: false,
+                _marker: PhantomData,
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Allocate new native memory and copy bytes.
+            let native_ptr = unsafe { ffi_dispatch::uika_struct_alloc(T::static_struct().0 as i64) } as u64;
+            // Copy from old native memory to new native memory via WASM roundtrip.
+            let bytes = self.to_bytes();
+            unsafe {
+                ffi_dispatch::uika_write_native_mem(
+                    native_ptr as i64,
+                    bytes.as_ptr() as i32,
+                    bytes.len() as i32,
+                );
+            }
+            OwnedStruct {
+                native_ptr,
+                size: self.size,
+                // Clone produces a raw byte copy — no DestroyStruct needed,
+                // but native memory IS freed on drop (via the Drop impl).
+                needs_destroy: false,
+                _marker: PhantomData,
+            }
         }
     }
 }
 
 impl<T: UeStruct> Drop for OwnedStruct<T> {
     fn drop(&mut self) {
-        if self.needs_destroy {
-            unsafe {
-                ((*api().reflection).destroy_struct)(
-                    T::static_struct(),
-                    self.data.as_mut_ptr(),
-                );
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.needs_destroy {
+                unsafe {
+                    ffi_dispatch::reflection_destroy_struct(
+                        T::static_struct(),
+                        self.data.as_mut_ptr(),
+                    );
+                }
+            }
+            // Vec<u8> is always freed automatically.
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            if self.native_ptr != 0 {
+                if self.needs_destroy {
+                    // Full cleanup: DestroyStruct + dealloc.
+                    unsafe {
+                        ffi_dispatch::uika_struct_free(
+                            T::static_struct().0 as i64,
+                            self.native_ptr as i64,
+                        );
+                    }
+                } else {
+                    // Just free the native memory (no DestroyStruct).
+                    unsafe {
+                        ffi_dispatch::uika_native_free(
+                            self.native_ptr as i64,
+                            self.size as i32,
+                        );
+                    }
+                }
             }
         }
     }
@@ -1076,9 +1235,10 @@ impl<T: UeStruct> Drop for OwnedStruct<T> {
 
 impl<T: UeStruct> std::fmt::Debug for OwnedStruct<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("OwnedStruct")
-            .field("size", &self.data.len())
-            .finish()
+        #[cfg(not(target_arch = "wasm32"))]
+        { f.debug_struct("OwnedStruct").field("size", &self.data.len()).finish() }
+        #[cfg(target_arch = "wasm32")]
+        { f.debug_struct("OwnedStruct").field("size", &self.size).finish() }
     }
 }
 
@@ -1089,18 +1249,15 @@ unsafe impl<T: UeStruct> ContainerElement for OwnedStruct<T> {
     const BUF_SIZE: u32 = 4096;
 
     unsafe fn read_from_buf(buf: *const u8, written: u32) -> Self { unsafe {
-        let mut data = vec![0u8; written as usize];
-        std::ptr::copy_nonoverlapping(buf, data.as_mut_ptr(), written as usize);
-        OwnedStruct {
-            data,
-            needs_destroy: false,
-            _marker: PhantomData,
-        }
+        let data = vec![0u8; written as usize];
+        std::ptr::copy_nonoverlapping(buf, data.as_ptr() as *mut u8, written as usize);
+        OwnedStruct::from_bytes(data)
     }}
 
     unsafe fn write_to_buf(&self, buf: *mut u8) -> u32 { unsafe {
-        let len = self.data.len();
-        std::ptr::copy_nonoverlapping(self.data.as_ptr(), buf, len);
+        let bytes = self.to_bytes();
+        let len = bytes.len();
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), buf, len);
         len as u32
     }}
 }

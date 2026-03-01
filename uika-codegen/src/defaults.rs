@@ -74,10 +74,10 @@ fn parse_object_default(s: &str, mapped: &MappedType) -> Option<String> {
     if s == "None" {
         // Check if this is a typed UObjectRef or an untyped UObjectHandle
         if mapped.rust_to_ffi == ConversionKind::ObjectRef {
-            Some("unsafe { uika_runtime::UObjectRef::from_raw(uika_runtime::UObjectHandle(std::ptr::null_mut())) }".into())
+            Some("unsafe { uika_runtime::UObjectRef::from_raw(uika_runtime::UObjectHandle::null()) }".into())
         } else {
             // Untyped UObjectHandle (Identity conversion)
-            Some("uika_runtime::UObjectHandle(std::ptr::null_mut())".into())
+            Some("uika_runtime::UObjectHandle::null()".into())
         }
     } else {
         None

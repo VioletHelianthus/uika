@@ -310,7 +310,7 @@ fn emit_prop_lookup(out: &mut String, byte_lit: &str, prop_name_len: usize, pctx
     out.push_str(&format!(
         "        static PROP: std::sync::OnceLock<uika_runtime::FPropertyHandle> = std::sync::OnceLock::new();\n\
          \x20       let prop = *PROP.get_or_init(|| unsafe {{\n\
-         \x20           ((*uika_runtime::api().reflection).{find})(\n\
+         \x20           uika_runtime::ffi_dispatch::reflection_{find}(\n\
          \x20               {handle}, {byte_lit}.as_ptr(), {prop_name_len}\n\
          \x20           )\n\
          \x20       }});\n"
@@ -348,7 +348,7 @@ fn generate_primitive_getter(
     emit_pre_access(out, pctx);
     out.push_str(&format!(
         "        let mut out = {default};\n\
-         \x20       uika_runtime::ffi_infallible_ctx(unsafe {{ ((*uika_runtime::api().property).{getter})({c}, prop, &mut out) }}, \"{rust_name}\");\n\
+         \x20       uika_runtime::ffi_infallible_ctx(unsafe {{ uika_runtime::ffi_dispatch::property_{getter}({c}, prop, &mut out) }}, \"{rust_name}\");\n\
          \x20       out\n\
          \x20   }}\n\n"
     ));
@@ -375,7 +375,7 @@ fn generate_int_cast_getter(
     emit_pre_access(out, pctx);
     out.push_str(&format!(
         "        let mut out = {default};\n\
-         \x20       uika_runtime::ffi_infallible_ctx(unsafe {{ ((*uika_runtime::api().property).{getter})({c}, prop, &mut out) }}, \"{rust_name}\");\n\
+         \x20       uika_runtime::ffi_infallible_ctx(unsafe {{ uika_runtime::ffi_dispatch::property_{getter}({c}, prop, &mut out) }}, \"{rust_name}\");\n\
          \x20       out as {rust_type}\n\
          \x20   }}\n\n"
     ));
@@ -399,7 +399,7 @@ fn generate_string_getter(
         "        let mut buf = vec![0u8; 512];\n\
          \x20       let mut out_len: u32 = 0;\n\
          \x20       uika_runtime::ffi_infallible_ctx(unsafe {{\n\
-         \x20           ((*uika_runtime::api().property).get_string)({c}, prop, buf.as_mut_ptr(), buf.len() as u32, &mut out_len)\n\
+         \x20           uika_runtime::ffi_dispatch::property_get_string({c}, prop, buf.as_mut_ptr(), buf.len() as u32, &mut out_len)\n\
          \x20       }}, \"{rust_name}\");\n\
          \x20       buf.truncate(out_len as usize);\n\
          \x20       String::from_utf8_lossy(&buf).into_owned()\n\
@@ -424,8 +424,8 @@ fn generate_object_getter(
     emit_prop_lookup(out, byte_lit, prop_name_len, pctx);
     emit_pre_access(out, pctx);
     out.push_str(&format!(
-        "        let mut raw = uika_runtime::UObjectHandle(std::ptr::null_mut());\n\
-         \x20       uika_runtime::ffi_infallible_ctx(unsafe {{ ((*uika_runtime::api().property).get_object)({c}, prop, &mut raw) }}, \"{rust_name}\");\n\
+        "        let mut raw = uika_runtime::UObjectHandle::null();\n\
+         \x20       uika_runtime::ffi_infallible_ctx(unsafe {{ uika_runtime::ffi_dispatch::property_get_object({c}, prop, &mut raw) }}, \"{rust_name}\");\n\
          \x20       unsafe {{ uika_runtime::UObjectRef::from_raw(raw) }}\n\
          \x20   }}\n\n"
     ));
@@ -450,7 +450,7 @@ fn generate_enum_getter(
     emit_pre_access(out, pctx);
     out.push_str(&format!(
         "        let mut raw: i64 = 0;\n\
-         \x20       uika_runtime::ffi_infallible_ctx(unsafe {{ ((*uika_runtime::api().property).get_enum)({c}, prop, &mut raw) }}, \"{rust_name}\");\n\
+         \x20       uika_runtime::ffi_infallible_ctx(unsafe {{ uika_runtime::ffi_dispatch::property_get_enum({c}, prop, &mut raw) }}, \"{rust_name}\");\n\
          \x20       {rust_type}::from_value(raw as {actual_repr}).expect(\"unknown enum value\")\n\
          \x20   }}\n\n"
     ));
@@ -472,7 +472,7 @@ fn generate_fname_getter(
     emit_pre_access(out, pctx);
     out.push_str(&format!(
         "        let mut out = uika_runtime::FNameHandle(0);\n\
-         \x20       uika_runtime::ffi_infallible_ctx(unsafe {{ ((*uika_runtime::api().property).get_fname)({c}, prop, &mut out) }}, \"{rust_name}\");\n\
+         \x20       uika_runtime::ffi_infallible_ctx(unsafe {{ uika_runtime::ffi_dispatch::property_get_fname({c}, prop, &mut out) }}, \"{rust_name}\");\n\
          \x20       out\n\
          \x20   }}\n\n"
     ));
@@ -500,7 +500,7 @@ fn generate_primitive_setter(
     emit_prop_lookup(out, byte_lit, prop_name_len, pctx);
     emit_pre_access(out, pctx);
     out.push_str(&format!(
-        "        uika_runtime::ffi_infallible_ctx(unsafe {{ ((*uika_runtime::api().property).{setter})({c}, prop, val) }}, \"{rust_name}\");\n\
+        "        uika_runtime::ffi_infallible_ctx(unsafe {{ uika_runtime::ffi_dispatch::property_{setter}({c}, prop, val) }}, \"{rust_name}\");\n\
          \x20   }}\n\n"
     ));
 }
@@ -524,7 +524,7 @@ fn generate_int_cast_setter(
     emit_prop_lookup(out, byte_lit, prop_name_len, pctx);
     emit_pre_access(out, pctx);
     out.push_str(&format!(
-        "        uika_runtime::ffi_infallible_ctx(unsafe {{ ((*uika_runtime::api().property).{setter})({c}, prop, val as {ffi_type}) }}, \"{rust_name}\");\n\
+        "        uika_runtime::ffi_infallible_ctx(unsafe {{ uika_runtime::ffi_dispatch::property_{setter}({c}, prop, val as {ffi_type}) }}, \"{rust_name}\");\n\
          \x20   }}\n\n"
     ));
 }
@@ -545,7 +545,7 @@ fn generate_string_setter(
     emit_pre_access(out, pctx);
     out.push_str(&format!(
         "        uika_runtime::ffi_infallible_ctx(unsafe {{\n\
-         \x20           ((*uika_runtime::api().property).set_string)({c}, prop, val.as_ptr(), val.len() as u32)\n\
+         \x20           uika_runtime::ffi_dispatch::property_set_string({c}, prop, val.as_ptr(), val.len() as u32)\n\
          \x20       }}, \"{rust_name}\");\n\
          \x20   }}\n\n"
     ));
@@ -568,7 +568,7 @@ fn generate_object_setter(
     emit_prop_lookup(out, byte_lit, prop_name_len, pctx);
     emit_pre_access(out, pctx);
     out.push_str(&format!(
-        "        uika_runtime::ffi_infallible_ctx(unsafe {{ ((*uika_runtime::api().property).set_object)({c}, prop, val.raw()) }}, \"{rust_name}\");\n\
+        "        uika_runtime::ffi_infallible_ctx(unsafe {{ uika_runtime::ffi_dispatch::property_set_object({c}, prop, val.raw()) }}, \"{rust_name}\");\n\
          \x20   }}\n\n"
     ));
 }
@@ -590,7 +590,7 @@ fn generate_enum_setter(
     emit_prop_lookup(out, byte_lit, prop_name_len, pctx);
     emit_pre_access(out, pctx);
     out.push_str(&format!(
-        "        uika_runtime::ffi_infallible_ctx(unsafe {{ ((*uika_runtime::api().property).set_enum)({c}, prop, val as i64) }}, \"{rust_name}\");\n\
+        "        uika_runtime::ffi_infallible_ctx(unsafe {{ uika_runtime::ffi_dispatch::property_set_enum({c}, prop, val as i64) }}, \"{rust_name}\");\n\
          \x20   }}\n\n"
     ));
 }
@@ -610,7 +610,7 @@ fn generate_fname_setter(
     emit_prop_lookup(out, byte_lit, prop_name_len, pctx);
     emit_pre_access(out, pctx);
     out.push_str(&format!(
-        "        uika_runtime::ffi_infallible_ctx(unsafe {{ ((*uika_runtime::api().property).set_fname)({c}, prop, val) }}, \"{rust_name}\");\n\
+        "        uika_runtime::ffi_infallible_ctx(unsafe {{ uika_runtime::ffi_dispatch::property_set_fname({c}, prop, val) }}, \"{rust_name}\");\n\
          \x20   }}\n\n"
     ));
 }
@@ -635,10 +635,10 @@ fn generate_struct_getter(
     emit_prop_lookup(out, byte_lit, prop_name_len, pctx);
     emit_pre_access(out, pctx);
     out.push_str(&format!(
-        "        let size = unsafe {{ ((*uika_runtime::api().reflection).get_property_size)(prop) }} as usize;\n\
+        "        let size = unsafe {{ uika_runtime::ffi_dispatch::reflection_get_property_size(prop) }} as usize;\n\
          \x20       let mut buf = vec![0u8; size];\n\
          \x20       uika_runtime::ffi_infallible_ctx(unsafe {{\n\
-         \x20           ((*uika_runtime::api().property).get_struct)({c}, prop, buf.as_mut_ptr(), size as u32)\n\
+         \x20           uika_runtime::ffi_dispatch::property_get_struct({c}, prop, buf.as_mut_ptr(), size as u32)\n\
          \x20       }}, \"{rust_name}\");\n\
          \x20       uika_runtime::OwnedStruct::from_bytes(buf)\n\
          \x20   }}\n\n"
@@ -661,8 +661,9 @@ fn generate_struct_setter(
     emit_prop_lookup(out, byte_lit, prop_name_len, pctx);
     emit_pre_access(out, pctx);
     out.push_str(&format!(
-        "        uika_runtime::ffi_infallible_ctx(unsafe {{\n\
-         \x20           ((*uika_runtime::api().property).set_struct)({c}, prop, val.as_bytes().as_ptr(), val.as_bytes().len() as u32)\n\
+        "        let __bytes = val.to_bytes();\n\
+         \x20       uika_runtime::ffi_infallible_ctx(unsafe {{\n\
+         \x20           uika_runtime::ffi_dispatch::property_set_struct({c}, prop, __bytes.as_ptr(), __bytes.len() as u32)\n\
          \x20       }}, \"{rust_name}\");\n\
          \x20   }}\n\n"
     ));
@@ -710,10 +711,10 @@ fn generate_fixed_array_property(
             let rust_type = &mapped.rust_type;
             (
                 rust_type.clone(),
-                "let handle = uika_runtime::UObjectHandle(usize::from_ne_bytes(buf[..std::mem::size_of::<usize>()].try_into().unwrap()) as *mut std::ffi::c_void);\n\
+                "let handle = uika_runtime::UObjectHandle::from_addr(u64::from_ne_bytes(buf[..8].try_into().unwrap()));\n\
                  \x20       Ok(unsafe { uika_runtime::UObjectRef::from_raw(handle) })".to_string(),
                 rust_type.clone(),
-                "let buf = (val.raw().0 as usize).to_ne_bytes().to_vec();".to_string(),
+                "let buf = val.raw().to_addr().to_ne_bytes().to_vec();".to_string(),
             )
         }
         ConversionKind::EnumCast => {
@@ -743,7 +744,7 @@ fn generate_fixed_array_property(
                 format!("uika_runtime::OwnedStruct<{struct_cpp}>"),
                 "Ok(uika_runtime::OwnedStruct::from_bytes(buf))".to_string(),
                 format!("&uika_runtime::OwnedStruct<{struct_cpp}>"),
-                "let buf = val.as_bytes().to_vec();".to_string(),
+                "let buf = val.to_bytes();".to_string(),
             )
         }
         _ => return, // Unsupported conversion kind for fixed arrays
@@ -757,10 +758,10 @@ fn generate_fixed_array_property(
     emit_pre_access(out, pctx);
     out.push_str(&format!(
         "        if index >= {array_dim} {{ return Err(uika_runtime::UikaError::IndexOutOfRange); }}\n\
-         \x20       let elem_size = unsafe {{ ((*uika_runtime::api().reflection).get_element_size)(prop) }} as usize;\n\
+         \x20       let elem_size = unsafe {{ uika_runtime::ffi_dispatch::reflection_get_element_size(prop) }} as usize;\n\
          \x20       let mut buf = vec![0u8; elem_size];\n\
          \x20       uika_runtime::check_ffi_ctx(unsafe {{\n\
-         \x20           ((*uika_runtime::api().property).get_property_at)({c}, prop, index, buf.as_mut_ptr(), elem_size as u32)\n\
+         \x20           uika_runtime::ffi_dispatch::property_get_property_at({c}, prop, index, buf.as_mut_ptr(), elem_size as u32)\n\
          \x20       }}, \"{rust_name}\")?;\n\
          \x20       {getter_conversion}\n\
          \x20   }}\n\n"
@@ -774,10 +775,10 @@ fn generate_fixed_array_property(
     emit_pre_access(out, pctx);
     out.push_str(&format!(
         "        if index >= {array_dim} {{ return Err(uika_runtime::UikaError::IndexOutOfRange); }}\n\
-         \x20       let elem_size = unsafe {{ ((*uika_runtime::api().reflection).get_element_size)(prop) }} as usize;\n\
+         \x20       let elem_size = unsafe {{ uika_runtime::ffi_dispatch::reflection_get_element_size(prop) }} as usize;\n\
          \x20       {setter_conversion}\n\
          \x20       uika_runtime::check_ffi_ctx(unsafe {{\n\
-         \x20           ((*uika_runtime::api().property).set_property_at)({c}, prop, index, buf.as_ptr(), elem_size as u32)\n\
+         \x20           uika_runtime::ffi_dispatch::property_set_property_at({c}, prop, index, buf.as_ptr(), elem_size as u32)\n\
          \x20       }}, \"{rust_name}\")?;\n\
          \x20       Ok(())\n\
          \x20   }}\n\n"
