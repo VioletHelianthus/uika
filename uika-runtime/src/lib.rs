@@ -51,3 +51,24 @@ pub use uika_ffi::{
     UObjectHandle, UClassHandle, FPropertyHandle, UStructHandle,
     FNameHandle, FWeakObjectHandle, UikaErrorCode,
 };
+
+// ---------------------------------------------------------------------------
+// Lock helpers — recover from mutex poisoning instead of panicking
+// ---------------------------------------------------------------------------
+
+use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+/// Lock a Mutex, recovering from poison.
+pub(crate) fn lock_or_recover<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Read-lock a RwLock, recovering from poison.
+pub(crate) fn read_or_recover<T>(m: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    m.read().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Write-lock a RwLock, recovering from poison.
+pub(crate) fn write_or_recover<T>(m: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    m.write().unwrap_or_else(|e| e.into_inner())
+}

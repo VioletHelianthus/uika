@@ -9,6 +9,7 @@ use crate::schema::*;
 use crate::type_map::{self, ConversionKind, MappedType, ParamDirection};
 
 use super::delegates;
+use super::param_helpers::{self, Platform};
 use super::properties::{self, PropertyContext};
 
 /// Generate Rust code for a single UE class.
@@ -166,86 +167,13 @@ pub fn generate_class(class: &ClassInfo, ctx: &CodegenContext) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Container param helpers
+// Container param helpers (delegated to type_map)
 // ---------------------------------------------------------------------------
 
-pub(super) fn is_container_param(param: &ParamInfo) -> bool {
-    matches!(
-        param.prop_type.as_str(),
-        "ArrayProperty" | "MapProperty" | "SetProperty"
-    )
-}
-
-/// Resolve the Rust input type for a container parameter (e.g., `&[Actor]`).
-pub(super) fn container_param_input_type(param: &ParamInfo, ctx: &CodegenContext) -> Option<String> {
-    match param.prop_type.as_str() {
-        "ArrayProperty" => {
-            let inner = param.inner_prop.as_ref()?;
-            let elem = type_map::container_element_rust_type(inner, Some(ctx))?;
-            Some(format!("&[{elem}]"))
-        }
-        "SetProperty" => {
-            let elem = param.element_prop.as_ref()?;
-            let etype = type_map::container_element_rust_type(elem, Some(ctx))?;
-            Some(format!("&[{etype}]"))
-        }
-        "MapProperty" => {
-            let key = param.key_prop.as_ref()?;
-            let val = param.value_prop.as_ref()?;
-            let kt = type_map::container_element_rust_type(key, Some(ctx))?;
-            let vt = type_map::container_element_rust_type(val, Some(ctx))?;
-            Some(format!("&[({kt}, {vt})]"))
-        }
-        _ => None,
-    }
-}
-
-/// Resolve the Rust output type for a container parameter (e.g., `Vec<Actor>`).
-pub(super) fn container_param_output_type(param: &ParamInfo, ctx: &CodegenContext) -> Option<String> {
-    match param.prop_type.as_str() {
-        "ArrayProperty" => {
-            let inner = param.inner_prop.as_ref()?;
-            let elem = type_map::container_element_rust_type(inner, Some(ctx))?;
-            Some(format!("Vec<{elem}>"))
-        }
-        "SetProperty" => {
-            let elem = param.element_prop.as_ref()?;
-            let etype = type_map::container_element_rust_type(elem, Some(ctx))?;
-            Some(format!("Vec<{etype}>"))
-        }
-        "MapProperty" => {
-            let key = param.key_prop.as_ref()?;
-            let val = param.value_prop.as_ref()?;
-            let kt = type_map::container_element_rust_type(key, Some(ctx))?;
-            let vt = type_map::container_element_rust_type(val, Some(ctx))?;
-            Some(format!("Vec<({kt}, {vt})>"))
-        }
-        _ => None,
-    }
-}
-
-/// Resolve the element type string for use in container type construction
-/// (e.g., `UObjectRef<Actor>` for UeArray, or `K, V` for UeMap).
-pub(super) fn container_elem_type_str(param: &ParamInfo, ctx: &CodegenContext) -> Option<String> {
-    match param.prop_type.as_str() {
-        "ArrayProperty" => {
-            let inner = param.inner_prop.as_ref()?;
-            type_map::container_element_rust_type(inner, Some(ctx))
-        }
-        "SetProperty" => {
-            let elem = param.element_prop.as_ref()?;
-            type_map::container_element_rust_type(elem, Some(ctx))
-        }
-        "MapProperty" => {
-            let key = param.key_prop.as_ref()?;
-            let val = param.value_prop.as_ref()?;
-            let kt = type_map::container_element_rust_type(key, Some(ctx))?;
-            let vt = type_map::container_element_rust_type(val, Some(ctx))?;
-            Some(format!("{kt}, {vt}"))
-        }
-        _ => None,
-    }
-}
+pub(super) use type_map::is_container_param;
+pub(super) use type_map::container_param_input_type;
+pub(super) use type_map::container_param_output_type;
+pub(super) use type_map::container_elem_type_str;
 
 /// Build the composite return type from all output components.
 fn build_return_type(output_types: &[String]) -> String {
@@ -311,7 +239,7 @@ fn generate_function(out: &mut String, entry: &FuncEntry, class_name: &str, ctx:
 // Scalar function implementation (no container params — original path)
 // ---------------------------------------------------------------------------
 
-fn generate_scalar_function(out: &mut String, entry: &FuncEntry, _class_name: &str, ctx: &CodegenContext) {
+fn generate_scalar_function(out: &mut String, entry: &FuncEntry, class_name: &str, ctx: &CodegenContext) {
     let func = &entry.func;
     let rust_fn_name = escape_reserved(&entry.rust_func_name);
     let func_id = entry.func_id;
@@ -350,8 +278,8 @@ fn generate_scalar_function(out: &mut String, entry: &FuncEntry, _class_name: &s
 
     if !all_supported {
         out.push_str(&format!(
-            "    // Skipped: {} (unsupported param type)\n\n",
-            func.name
+            "    // Skipped: {}.{} (unsupported param type)\n\n",
+            class_name, func.name
         ));
         return;
     }
@@ -572,32 +500,10 @@ fn generate_scalar_function(out: &mut String, entry: &FuncEntry, _class_name: &s
 
     for (param, dir, mapped) in &all_mapped {
         if *dir == ParamDirection::Out {
-            let pname = escape_reserved(&to_snake_case(&param.name));
-            match mapped.ffi_to_rust {
-                ConversionKind::StructOpaque => {
-                    out.push_str(&format!("        let mut {pname}_buf = vec![0u8; 256];\n"));
-                }
-                ConversionKind::StringUtf8 => {
-                    out.push_str(&format!("        let mut {pname}_buf = vec![0u8; 512];\n"));
-                    out.push_str(&format!("        let mut {pname}_len: u32 = 0;\n"));
-                }
-                ConversionKind::ObjectRef => {
-                    out.push_str(&format!("        let mut {pname} = uika_runtime::UObjectHandle::null();\n"));
-                }
-                ConversionKind::EnumCast => {
-                    out.push_str(&format!("        let mut {pname}: {} = 0;\n", mapped.rust_ffi_type));
-                }
-                _ => {
-                    let default = properties::default_value_for(&mapped.rust_ffi_type);
-                    out.push_str(&format!("        let mut {pname} = {default};\n"));
-                }
-            }
+            param_helpers::emit_out_param_var_decl(out, param, mapped, Platform::Native);
         }
-        // InOut string/text params need output buffers for the modified value
-        if *dir == ParamDirection::InOut && mapped.ffi_to_rust == ConversionKind::StringUtf8 {
-            let pname = escape_reserved(&to_snake_case(&param.name));
-            out.push_str(&format!("        let mut {pname}_buf = vec![0u8; 512];\n"));
-            out.push_str(&format!("        let mut {pname}_len: u32 = 0;\n"));
+        if *dir == ParamDirection::InOut {
+            param_helpers::emit_inout_string_buf_decl(out, param, mapped);
         }
     }
 
@@ -720,52 +626,12 @@ fn generate_scalar_function(out: &mut String, entry: &FuncEntry, _class_name: &s
             if !is_scalar_output_returnable(*dir, mapped) {
                 continue;
             }
-            let pname = escape_reserved(&to_snake_case(&param.name));
-            match mapped.ffi_to_rust {
-                ConversionKind::ObjectRef => {
-                    return_parts.push(format!("unsafe {{ uika_runtime::UObjectRef::from_raw({pname}) }}"));
-                }
-                ConversionKind::StringUtf8 => {
-                    out.push_str(&format!("        {pname}_buf.truncate({pname}_len as usize);\n"));
-                    out.push_str(&format!("        let {pname}_str = String::from_utf8_lossy(&{pname}_buf).into_owned();\n"));
-                    return_parts.push(format!("{pname}_str"));
-                }
-                ConversionKind::EnumCast => {
-                    let rt = &mapped.rust_type;
-                    let actual_repr = param.enum_name.as_deref()
-                        .and_then(|en| ctx.enum_actual_repr(en))
-                        .unwrap_or(&mapped.rust_ffi_type);
-                    out.push_str(&format!("        let {pname}_enum = {rt}::from_value({pname} as {actual_repr}).expect(\"unknown enum value\");\n"));
-                    return_parts.push(format!("{pname}_enum"));
-                }
-                ConversionKind::StructOpaque => {
-                    if is_struct_owned(param.struct_name.as_deref(), ctx) {
-                        out.push_str(&format!("        let {pname}_owned = uika_runtime::OwnedStruct::from_bytes({pname}_buf);\n"));
-                        return_parts.push(format!("{pname}_owned"));
-                    } else {
-                        out.push_str(&format!("        let {pname}_ptr = {pname}_buf.as_ptr();\n"));
-                        out.push_str(&format!("        std::mem::forget({pname}_buf);\n"));
-                        return_parts.push(format!("{pname}_ptr"));
-                    }
-                }
-                ConversionKind::IntCast => {
-                    let rt = &mapped.rust_type;
-                    return_parts.push(format!("{pname} as {rt}"));
-                }
-                ConversionKind::FName => {
-                    return_parts.push(pname.to_string());
-                }
-                _ => {
-                    return_parts.push(pname.to_string());
-                }
-            }
+            return_parts.push(param_helpers::emit_out_param_conversion(
+                out, param, mapped, Platform::Native, ctx,
+            ));
         }
 
-        match return_parts.len() {
-            0 => {},
-            1 => out.push_str(&format!("        {}\n", return_parts[0])),
-            _ => out.push_str(&format!("        ({})\n", return_parts.join(", "))),
-        }
+        param_helpers::emit_return_expr(out, &return_parts);
     }
 
     out.push_str("        }\n"); // close native cfg block
@@ -853,8 +719,8 @@ fn generate_container_function(out: &mut String, entry: &FuncEntry, class_name: 
 
     if !all_supported {
         out.push_str(&format!(
-            "    // Skipped: {} (unsupported container inner type)\n\n",
-            func.name
+            "    // Skipped: {}.{} (unsupported container inner type)\n\n",
+            class_name, func.name
         ));
         return;
     }
@@ -1110,35 +976,11 @@ fn generate_container_function(out: &mut String, entry: &FuncEntry, class_name: 
         let dir = type_map::param_direction(param);
         if dir == ParamDirection::Out && !is_container_param(param) {
             let mapped = map_param(param);
-            let pname = escape_reserved(&to_snake_case(&param.name));
-            match mapped.ffi_to_rust {
-                ConversionKind::StructOpaque => {
-                    out.push_str(&format!("        let mut {pname}_buf = vec![0u8; 256];\n"));
-                }
-                ConversionKind::StringUtf8 => {
-                    out.push_str(&format!("        let mut {pname}_buf = vec![0u8; 512];\n"));
-                    out.push_str(&format!("        let mut {pname}_len: u32 = 0;\n"));
-                }
-                ConversionKind::ObjectRef => {
-                    out.push_str(&format!("        let mut {pname} = uika_runtime::UObjectHandle::null();\n"));
-                }
-                ConversionKind::EnumCast => {
-                    out.push_str(&format!("        let mut {pname}: {} = 0;\n", mapped.rust_ffi_type));
-                }
-                _ => {
-                    let default = properties::default_value_for(&mapped.rust_ffi_type);
-                    out.push_str(&format!("        let mut {pname} = {default};\n"));
-                }
-            }
+            param_helpers::emit_out_param_var_decl(out, param, &mapped, Platform::Native);
         }
-        // InOut string/text params need output buffers for the modified value
         if dir == ParamDirection::InOut && !is_container_param(param) {
             let mapped = map_param(param);
-            if mapped.ffi_to_rust == ConversionKind::StringUtf8 {
-                let pname = escape_reserved(&to_snake_case(&param.name));
-                out.push_str(&format!("        let mut {pname}_buf = vec![0u8; 512];\n"));
-                out.push_str(&format!("        let mut {pname}_len: u32 = 0;\n"));
-            }
+            param_helpers::emit_inout_string_buf_decl(out, param, &mapped);
         }
     }
 
@@ -1426,53 +1268,13 @@ fn emit_container_return(
             if !is_scalar_output_returnable(dir, &mapped) {
                 continue;
             }
-            let pname = escape_reserved(&to_snake_case(&param.name));
-            match mapped.ffi_to_rust {
-                ConversionKind::ObjectRef => {
-                    return_parts.push(format!("unsafe {{ uika_runtime::UObjectRef::from_raw({pname}) }}"));
-                }
-                ConversionKind::StringUtf8 => {
-                    out.push_str(&format!("        {pname}_buf.truncate({pname}_len as usize);\n"));
-                    out.push_str(&format!("        let {pname}_str = String::from_utf8_lossy(&{pname}_buf).into_owned();\n"));
-                    return_parts.push(format!("{pname}_str"));
-                }
-                ConversionKind::EnumCast => {
-                    let rt = &mapped.rust_type;
-                    let actual_repr = param.enum_name.as_deref()
-                        .and_then(|en| ctx.enum_actual_repr(en))
-                        .unwrap_or(&mapped.rust_ffi_type);
-                    out.push_str(&format!("        let {pname}_enum = {rt}::from_value({pname} as {actual_repr}).expect(\"unknown enum value\");\n"));
-                    return_parts.push(format!("{pname}_enum"));
-                }
-                ConversionKind::StructOpaque => {
-                    if is_struct_owned(param.struct_name.as_deref(), ctx) {
-                        out.push_str(&format!("        let {pname}_owned = uika_runtime::OwnedStruct::from_bytes({pname}_buf);\n"));
-                        return_parts.push(format!("{pname}_owned"));
-                    } else {
-                        out.push_str(&format!("        let {pname}_ptr = {pname}_buf.as_ptr();\n"));
-                        out.push_str(&format!("        std::mem::forget({pname}_buf);\n"));
-                        return_parts.push(format!("{pname}_ptr"));
-                    }
-                }
-                ConversionKind::IntCast => {
-                    let rt = &mapped.rust_type;
-                    return_parts.push(format!("{pname} as {rt}"));
-                }
-                ConversionKind::FName => {
-                    return_parts.push(pname.to_string());
-                }
-                _ => {
-                    return_parts.push(pname.to_string());
-                }
-            }
+            return_parts.push(param_helpers::emit_out_param_conversion(
+                out, param, &mapped, Platform::Native, ctx,
+            ));
         }
     }
 
-    match return_parts.len() {
-        0 => {},
-        1 => out.push_str(&format!("        {}\n", return_parts[0])),
-        _ => out.push_str(&format!("        ({})\n", return_parts.join(", "))),
-    }
+    param_helpers::emit_return_expr(out, &return_parts);
 }
 
 /// Map a ParamInfo to its MappedType (convenience helper).

@@ -167,50 +167,6 @@ impl GemCollectorGameMode {
     }
 }
 
-/// Set CDO defaults that reference other reified classes.
-/// NOTE: Previously called automatically from uika_init. Now available for
-/// manual invocation if needed, but CDO defaults are set via #[uproperty(default = ...)].
-#[allow(dead_code)]
-#[cfg(not(target_arch = "wasm32"))]
-pub fn post_register_setup() {
-    ulog!(LOG_DISPLAY, "[GemCollector] post_register_setup() called");
-    let gm_class = <GemCollectorGameMode as uika::runtime::UeClass>::static_class();
-    if gm_class.is_null() {
-        ulog!(LOG_WARNING, "[GemCollector] post_register_setup: gm_class is null!");
-        return;
-    }
-    let api = uika::runtime::api();
-    unsafe {
-        let cdo = ((*api.reify).get_cdo)(gm_class);
-        if cdo.is_null() {
-            ulog!(LOG_WARNING, "[GemCollector] post_register_setup: CDO is null!");
-            return;
-        }
-        let gm_ref: UObjectRef<GameModeBase> = UObjectRef::from_raw(cdo);
-
-        match gm_ref.checked() {
-            Ok(gm) => {
-                // DefaultPawnClass = GemCollectorPawn (for editor display; we spawn manually)
-                let pawn_class = <GemCollectorPawn as uika::runtime::UeClass>::static_class();
-                let pawn_ref: UObjectRef<Pawn> = UObjectRef::from_raw(
-                    uika::ffi::UObjectHandle(pawn_class.0),
-                );
-                gm.set_default_pawn_class(pawn_ref);
-                ulog!(LOG_DISPLAY, "[GemCollector] CDO DefaultPawnClass = GemCollectorPawn");
-
-                // HUDClass = GemCollectorHUD
-                let hud_class = <GemCollectorHUD as uika::runtime::UeClass>::static_class();
-                let hud_ref: UObjectRef<HUD> = UObjectRef::from_raw(
-                    uika::ffi::UObjectHandle(hud_class.0),
-                );
-                gm.set_hud_class(hud_ref);
-                ulog!(LOG_DISPLAY, "[GemCollector] CDO HUDClass = GemCollectorHUD");
-            }
-            Err(e) => ulog!(LOG_WARNING, "[GemCollector] CDO property setup failed: {:?}", e),
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // GemCollectorHUD — draws score and time remaining on screen
 // ---------------------------------------------------------------------------

@@ -234,6 +234,9 @@ fn register_manual_host_functions(linker: &mut Linker<HostState>) -> Result<()> 
     // Used by DynamicCall on wasm32 to read from alloc_params buffers.
     // Guest import: fn uika_read_native_mem(src: i64, dst: i32, len: i32)
     // Guest pre-adds offset to ptr, so host receives the final address.
+    //
+    // SAFETY: The guest is trusted self-authored code. The host does not
+    // validate pointer validity for performance. Invalid pointers cause UB.
     linker.func_wrap(
         "uika",
         "uika_read_native_mem",
@@ -241,6 +244,7 @@ fn register_manual_host_functions(linker: &mut Linker<HostState>) -> Result<()> 
          src: i64,
          wasm_dst: i32,
          len: i32| {
+            if src == 0 { return; }
             let ptr = src as usize as *const u8;
             let bytes = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
             write_guest_bytes(&mut caller, wasm_dst as u32, bytes);
@@ -249,6 +253,9 @@ fn register_manual_host_functions(linker: &mut Linker<HostState>) -> Result<()> 
 
     // Guest import: fn uika_write_native_mem(dst: i64, src: i32, len: i32)
     // Guest pre-adds offset to ptr, so host receives the final address.
+    //
+    // SAFETY: The guest is trusted self-authored code. The host does not
+    // validate pointer validity for performance. Invalid pointers cause UB.
     linker.func_wrap(
         "uika",
         "uika_write_native_mem",
@@ -256,6 +263,7 @@ fn register_manual_host_functions(linker: &mut Linker<HostState>) -> Result<()> 
          dst: i64,
          wasm_src: i32,
          len: i32| {
+            if dst == 0 { return; }
             let bytes = read_guest_bytes(&caller, wasm_src as u32, len as u32);
             let ptr = dst as usize as *mut u8;
             unsafe {
@@ -275,7 +283,10 @@ fn register_manual_host_functions(linker: &mut Linker<HostState>) -> Result<()> 
                 let refl = &*(*api).reflection;
                 let sh = UStructHandle(ustruct as usize as *mut std::ffi::c_void);
                 let size = (refl.get_struct_size)(sh);
-                let layout = std::alloc::Layout::from_size_align(size as usize, 16).unwrap();
+                let layout = match std::alloc::Layout::from_size_align(size as usize, 16) {
+                    Ok(l) => l,
+                    Err(_) => return 0i64,
+                };
                 let ptr = std::alloc::alloc_zeroed(layout);
                 (refl.initialize_struct)(sh, ptr);
                 ptr as usize as i64
@@ -296,7 +307,10 @@ fn register_manual_host_functions(linker: &mut Linker<HostState>) -> Result<()> 
                 let native_ptr = ptr as usize as *mut u8;
                 (refl.destroy_struct)(sh, native_ptr);
                 let size = (refl.get_struct_size)(sh);
-                let layout = std::alloc::Layout::from_size_align(size as usize, 16).unwrap();
+                let layout = match std::alloc::Layout::from_size_align(size as usize, 16) {
+                    Ok(l) => l,
+                    Err(_) => return,
+                };
                 std::alloc::dealloc(native_ptr, layout);
             }
         },
@@ -309,7 +323,10 @@ fn register_manual_host_functions(linker: &mut Linker<HostState>) -> Result<()> 
         "uika_native_alloc",
         |_caller: Caller<'_, HostState>, size: i32| -> i64 {
             unsafe {
-                let layout = std::alloc::Layout::from_size_align(size as usize, 16).unwrap();
+                let layout = match std::alloc::Layout::from_size_align(size as usize, 16) {
+                    Ok(l) => l,
+                    Err(_) => return 0i64,
+                };
                 let ptr = std::alloc::alloc_zeroed(layout);
                 ptr as usize as i64
             }
@@ -322,7 +339,10 @@ fn register_manual_host_functions(linker: &mut Linker<HostState>) -> Result<()> 
         "uika_native_free",
         |_caller: Caller<'_, HostState>, ptr: i64, size: i32| {
             unsafe {
-                let layout = std::alloc::Layout::from_size_align(size as usize, 16).unwrap();
+                let layout = match std::alloc::Layout::from_size_align(size as usize, 16) {
+                    Ok(l) => l,
+                    Err(_) => return,
+                };
                 std::alloc::dealloc(ptr as usize as *mut u8, layout);
             }
         },

@@ -8,6 +8,7 @@ pub mod delegates;
 pub mod module;
 pub mod func_ids;
 pub mod wasm_gen;
+pub mod param_helpers;
 
 use std::path::Path;
 

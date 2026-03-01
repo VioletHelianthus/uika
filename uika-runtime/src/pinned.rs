@@ -11,6 +11,8 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::lock_or_recover;
+
 use uika_ffi::UObjectHandle;
 
 use crate::error::{UikaError, UikaResult};
@@ -22,16 +24,6 @@ use crate::traits::{HasParent, UeClass, UeHandle, ValidHandle};
 // Alive registry — maps UObject pointer → alive flag for fast checked_handle
 // ---------------------------------------------------------------------------
 
-/// Convert a UObjectHandle to a u64 key for HashMap storage.
-/// Uses u64 instead of usize to avoid truncation on wasm32 (where usize is 32-bit).
-#[inline]
-fn handle_to_key(h: UObjectHandle) -> u64 {
-    #[cfg(not(target_arch = "wasm32"))]
-    { h.0 as usize as u64 }
-    #[cfg(target_arch = "wasm32")]
-    { h.0 }
-}
-
 fn alive_registry() -> &'static Mutex<HashMap<u64, Arc<AtomicBool>>> {
     static REGISTRY: OnceLock<Mutex<HashMap<u64, Arc<AtomicBool>>>> = OnceLock::new();
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
@@ -42,7 +34,7 @@ fn alive_registry() -> &'static Mutex<HashMap<u64, Arc<AtomicBool>>> {
 /// so subsequent `checked_handle()` calls return `Err(ObjectDestroyed)`.
 pub fn notify_pinned_destroyed(handle: UObjectHandle) {
     if let Ok(registry) = alive_registry().lock() {
-        if let Some(flag) = registry.get(&handle_to_key(handle)) {
+        if let Some(flag) = registry.get(&handle.to_addr()) {
             flag.store(false, Ordering::Relaxed);
         }
     }
@@ -89,8 +81,8 @@ impl<T: UeClass> Pinned<T> {
         }
         let alive = Arc::new(AtomicBool::new(true));
         // Register in alive registry (for C++ destroy notification → Rust alive flag).
-        alive_registry().lock().unwrap()
-            .insert(handle_to_key(obj.raw()), alive.clone());
+        lock_or_recover(alive_registry())
+            .insert(obj.raw().to_addr(), alive.clone());
         // GC root + destroy notification registration.
         unsafe {
             ffi_dispatch::lifecycle_add_gc_root(obj.raw());
@@ -137,7 +129,7 @@ impl<T: UeClass> Pinned<T> {
 impl<T: UeClass> Drop for Pinned<T> {
     fn drop(&mut self) {
         // Remove from alive registry.
-        alive_registry().lock().unwrap().remove(&handle_to_key(self.handle));
+        lock_or_recover(alive_registry()).remove(&self.handle.to_addr());
         // Unregister from C++ destroy notification, then remove GC root.
         unsafe {
             ffi_dispatch::lifecycle_unregister_pinned(self.handle);

@@ -1,5 +1,21 @@
 // uika: User-facing library crate. Users depend on this and use `uika::entry!()`
 // to generate the DLL entry points in their own cdylib crate.
+//
+//! ## Feature Flags
+//!
+//! | Feature              | Modules                                     |
+//! |----------------------|---------------------------------------------|
+//! | `core`               | CoreUObject types (UObject, UClass, ...)    |
+//! | `engine`             | Engine types (AActor, UWorld, ...)           |
+//! | `physics-core`       | PhysicsCore types                           |
+//! | `input`              | EnhancedInput types                         |
+//! | `slate`              | Slate UI types                              |
+//! | `umg`                | UMG (Widget) types                          |
+//! | `niagara`            | Niagara particle system types               |
+//! | `gameplay-abilities` | Gameplay Ability System types                |
+//! | `level-sequence`     | Level Sequence / Sequencer types            |
+//! | `cinematic`          | Cinematic camera types                      |
+//! | `movie`              | Movie scene types                           |
 
 // Re-exports for proc macro path resolution and user access.
 pub use uika_ffi as ffi;
@@ -120,24 +136,29 @@ pub fn init(api_table: *const ffi::UikaApiTable) -> *const ffi::UikaRustCallback
     .unwrap_or(std::ptr::null())
 }
 
-/// Log the Uika greeting message with compiled feature list.
-#[cfg_attr(feature = "wasm-host", allow(dead_code))]
-fn log_greeting() {
-    macro_rules! feature_str {
-        ($($feat:literal),+ $(,)?) => {{
-            let mut s = String::from("[Uika] Rust side initialized (features:");
+/// Build a greeting string listing all compiled feature flags.
+fn build_feature_greeting(prefix: &str) -> String {
+    macro_rules! collect_features {
+        ($s:expr, $($feat:literal),+ $(,)?) => {{
             $(
                 #[cfg(feature = $feat)]
-                s.push_str(concat!(" ", $feat));
+                $s.push_str(concat!(" ", $feat));
             )+
-            s.push(')');
-            s
         }};
     }
-    let msg = feature_str!(
+    let mut s = format!("[Uika] {} (features:", prefix);
+    collect_features!(s,
         "core", "engine", "physics-core", "input", "slate", "umg",
         "niagara", "gameplay-abilities", "level-sequence", "cinematic", "movie"
     );
+    s.push(')');
+    s
+}
+
+/// Log the Uika greeting message with compiled feature list.
+#[cfg_attr(feature = "wasm-host", allow(dead_code))]
+fn log_greeting() {
+    let msg = build_feature_greeting("Rust side initialized");
     let bytes = msg.as_bytes();
     unsafe {
         runtime::ffi_dispatch::logging_log(0, bytes.as_ptr(), bytes.len() as u32);
@@ -171,22 +192,7 @@ pub fn shutdown() {
 #[cfg(target_arch = "wasm32")]
 pub fn wasm_init() {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        // Log greeting with compiled feature list.
-        macro_rules! feature_str {
-            ($($feat:literal),+ $(,)?) => {{
-                let mut s = String::from("[Uika/WASM] Rust guest initialized (features:");
-                $(
-                    #[cfg(feature = $feat)]
-                    s.push_str(concat!(" ", $feat));
-                )+
-                s.push(')');
-                s
-            }};
-        }
-        let msg = feature_str!(
-            "core", "engine", "physics-core", "input", "slate", "umg",
-            "niagara", "gameplay-abilities", "level-sequence", "cinematic", "movie"
-        );
+        let msg = build_feature_greeting("WASM guest initialized");
         let bytes = msg.as_bytes();
         unsafe {
             runtime::ffi_dispatch::logging_log(0, bytes.as_ptr(), bytes.len() as u32);

@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+use crate::lock_or_recover;
+
 use uika_ffi::{FPropertyHandle, UObjectHandle, UikaErrorCode};
 
 use crate::error::{check_ffi, UikaResult};
@@ -23,20 +25,20 @@ fn registry() -> &'static Mutex<HashMap<u64, DelegateCallback>> {
 /// Register a closure and return its unique callback ID.
 pub fn register_callback(f: impl FnMut(NativePtr) + Send + 'static) -> u64 {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    registry().lock().unwrap().insert(id, Some(Box::new(f)));
+    lock_or_recover(registry()).insert(id, Some(Box::new(f)));
     id
 }
 
 /// Unregister a callback by its ID.
 pub fn unregister_callback(id: u64) {
-    registry().lock().unwrap().remove(&id);
+    lock_or_recover(registry()).remove(&id);
 }
 
 /// Clear all callbacks and reset the ID counter.
 /// Called during shutdown before DLL unload (enables hot reload).
 pub fn clear_all() {
     if let Some(reg) = REGISTRY.get() {
-        reg.lock().unwrap().clear();
+        lock_or_recover(reg).clear();
     }
     NEXT_ID.store(1, Ordering::Relaxed);
 }
@@ -49,7 +51,7 @@ pub fn clear_all() {
 pub fn invoke(callback_id: u64, params: NativePtr) {
     // 1. Briefly lock, take the callback out (replace with None).
     let mut cb = {
-        let mut reg = registry().lock().unwrap();
+        let mut reg = lock_or_recover(registry());
         reg.get_mut(&callback_id).and_then(|slot| slot.take())
     };
 
@@ -62,7 +64,7 @@ pub fn invoke(callback_id: u64, params: NativePtr) {
     //    If unregister_callback was called during execution, the entry was
     //    removed entirely, so get_mut returns None and we drop the callback.
     if let Some(f) = cb {
-        let mut reg = registry().lock().unwrap();
+        let mut reg = lock_or_recover(registry());
         if let Some(slot) = reg.get_mut(&callback_id) {
             if slot.is_none() {
                 *slot = Some(f);

@@ -595,3 +595,86 @@ pub fn resolve_container_rust_type(
         _ => None,
     }
 }
+
+// ---------------------------------------------------------------------------
+// Container parameter helpers (for function codegen)
+// ---------------------------------------------------------------------------
+
+/// Check if a function parameter is a container type (Array, Map, Set).
+pub fn is_container_param(param: &ParamInfo) -> bool {
+    matches!(
+        param.prop_type.as_str(),
+        "ArrayProperty" | "MapProperty" | "SetProperty"
+    )
+}
+
+/// Resolve the Rust input type for a container parameter (e.g., `&[Actor]`).
+pub fn container_param_input_type(param: &ParamInfo, ctx: &CodegenContext) -> Option<String> {
+    match param.prop_type.as_str() {
+        "ArrayProperty" => {
+            let inner = param.inner_prop.as_ref()?;
+            let elem = container_element_rust_type(inner, Some(ctx))?;
+            Some(format!("&[{elem}]"))
+        }
+        "SetProperty" => {
+            let elem = param.element_prop.as_ref()?;
+            let etype = container_element_rust_type(elem, Some(ctx))?;
+            Some(format!("&[{etype}]"))
+        }
+        "MapProperty" => {
+            let key = param.key_prop.as_ref()?;
+            let val = param.value_prop.as_ref()?;
+            let kt = container_element_rust_type(key, Some(ctx))?;
+            let vt = container_element_rust_type(val, Some(ctx))?;
+            Some(format!("&[({kt}, {vt})]"))
+        }
+        _ => None,
+    }
+}
+
+/// Resolve the Rust output type for a container parameter (e.g., `Vec<Actor>`).
+pub fn container_param_output_type(param: &ParamInfo, ctx: &CodegenContext) -> Option<String> {
+    match param.prop_type.as_str() {
+        "ArrayProperty" => {
+            let inner = param.inner_prop.as_ref()?;
+            let elem = container_element_rust_type(inner, Some(ctx))?;
+            Some(format!("Vec<{elem}>"))
+        }
+        "SetProperty" => {
+            let elem = param.element_prop.as_ref()?;
+            let etype = container_element_rust_type(elem, Some(ctx))?;
+            Some(format!("Vec<{etype}>"))
+        }
+        "MapProperty" => {
+            let key = param.key_prop.as_ref()?;
+            let val = param.value_prop.as_ref()?;
+            let kt = container_element_rust_type(key, Some(ctx))?;
+            let vt = container_element_rust_type(val, Some(ctx))?;
+            Some(format!("Vec<({kt}, {vt})>"))
+        }
+        _ => None,
+    }
+}
+
+/// Resolve the element type string for use in container type construction
+/// (e.g., `UObjectRef<Actor>` for UeArray, or `K, V` for UeMap).
+pub fn container_elem_type_str(param: &ParamInfo, ctx: &CodegenContext) -> Option<String> {
+    match param.prop_type.as_str() {
+        "ArrayProperty" => {
+            let inner = param.inner_prop.as_ref()?;
+            container_element_rust_type(inner, Some(ctx))
+        }
+        "SetProperty" => {
+            let elem = param.element_prop.as_ref()?;
+            container_element_rust_type(elem, Some(ctx))
+        }
+        "MapProperty" => {
+            let key = param.key_prop.as_ref()?;
+            let val = param.value_prop.as_ref()?;
+            let kt = container_element_rust_type(key, Some(ctx))?;
+            let vt = container_element_rust_type(val, Some(ctx))?;
+            Some(format!("{kt}, {vt}"))
+        }
+        _ => None,
+    }
+}

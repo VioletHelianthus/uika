@@ -37,6 +37,10 @@ pub struct UikaApiTable {
     pub func_count: u32,
 }
 
+// SAFETY: UikaApiTable contains only function pointers and a version field.
+// The table is filled once during module startup (FillApiTable in C++) before
+// the pointer is handed to Rust via uika_init. After init, the table is
+// read-only for the lifetime of the DLL, so sharing across threads is safe.
 unsafe impl Send for UikaApiTable {}
 unsafe impl Sync for UikaApiTable {}
 
@@ -261,7 +265,12 @@ pub struct UikaReflectionApi {
 // Placeholder sub-tables (filled in later phases)
 // ---------------------------------------------------------------------------
 
-/// Phase 7: TArray / TMap / TSet operations.
+/// Placeholder for WASM memory operations.
+///
+/// Reserved for future use when the WASM embedding path needs to expose
+/// guest memory management (e.g. shared memory, memory growth notifications)
+/// to the C++ host. Currently unused — the `memory` field in `UikaApiTable`
+/// is set to `nullptr` on the C++ side.
 #[repr(C)]
 pub struct UikaMemoryApi {
     _opaque: u8,

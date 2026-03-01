@@ -376,6 +376,9 @@ impl<T: ContainerElement> Iterator for BulkArrayIter<T> {
             Some(elem)
         } else {
             // Framed mode: [u32 written][data] per element
+            if self.offset + 4 > self.buf.len() {
+                return None;
+            }
             let written = u32::from_ne_bytes(
                 self.buf[self.offset..self.offset + 4].try_into().unwrap(),
             );
@@ -413,6 +416,9 @@ impl<K: ContainerElement, V: ContainerElement> Iterator for BulkMapIter<K, V> {
             return None;
         }
         // Key: [u32 written][data]
+        if self.offset + 4 > self.buf.len() {
+            return None;
+        }
         let key_written = u32::from_ne_bytes(
             self.buf[self.offset..self.offset + 4].try_into().unwrap(),
         );
@@ -422,6 +428,9 @@ impl<K: ContainerElement, V: ContainerElement> Iterator for BulkMapIter<K, V> {
         self.offset += key_written as usize;
 
         // Value: [u32 written][data]
+        if self.offset + 4 > self.buf.len() {
+            return None;
+        }
         let val_written = u32::from_ne_bytes(
             self.buf[self.offset..self.offset + 4].try_into().unwrap(),
         );
@@ -456,6 +465,9 @@ impl<T: ContainerElement> Iterator for BulkSetIter<T> {
 
     fn next(&mut self) -> Option<T> {
         if self.index >= self.count {
+            return None;
+        }
+        if self.offset + 4 > self.buf.len() {
             return None;
         }
         let written = u32::from_ne_bytes(

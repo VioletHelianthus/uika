@@ -157,8 +157,9 @@ fn verify_output(ctx: &context::CodegenContext, rust_out: &Path, cpp_out: &Path)
     for (i, entry) in ctx.func_table.iter().enumerate() {
         if entry.func_id != i as u32 {
             errors.push(format!(
-                "FuncId gap: expected {} for {}.{}, got {}",
-                i, entry.class_name, entry.func_name, entry.func_id
+                "FuncId gap: expected {} for module '{}' {}.{}, got {} (total functions: {})",
+                i, entry.module_name, entry.class_name, entry.func_name,
+                entry.func_id, ctx.func_table.len()
             ));
             break; // one error is enough to flag the issue
         }

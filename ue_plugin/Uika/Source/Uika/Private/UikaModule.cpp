@@ -153,6 +153,7 @@ void FUikaModule::StartupModule()
             TEXT("[Uika] Failed to copy DLL %s → %s (error %u). Falling back to direct load."),
             *DllSourcePath, *InitialCopyPath, CopyResult);
         // Fallback: load directly (will lock the source, but at least it works)
+        UE_LOG(LogUika, Warning, TEXT("[Uika] Using fallback DLL path: %s"), *DllSourcePath);
         if (!LoadRustDll(DllSourcePath))
         {
             return;
@@ -264,6 +265,8 @@ void FUikaModule::TeardownReifiedInstances()
         UikaReifyForEachReifiedInstance(
             [this, &InstanceCount](UObject* Obj, UUikaReifiedClass* ReifiedClass)
             {
+                // TODO: pass bIsCDO to drop_rust_instance when callback signature is extended
+                // bool bIsCDO = Obj->HasAnyFlags(RF_ClassDefaultObject);
                 RustCallbacks->drop_rust_instance(
                     UikaUObjectHandle{ Obj },
                     ReifiedClass->RustTypeId,

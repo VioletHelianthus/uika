@@ -9,6 +9,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
+use crate::{lock_or_recover, read_or_recover, write_or_recover};
+
 // ---------------------------------------------------------------------------
 // Inventory-based auto-registration
 // ---------------------------------------------------------------------------
@@ -43,7 +45,7 @@ pub fn register_all_from_inventory() {
     }
 
     // Log registration summary (helps diagnose hot-reload issues).
-    let total_funcs = func_registry().read().unwrap().len();
+    let total_funcs = read_or_recover(func_registry()).len();
     let msg = format!(
         "[Uika] register_all_from_inventory: {} classes, {} impl blocks, {} function callbacks",
         class_count, func_reg_count, total_funcs,
@@ -105,24 +107,13 @@ fn instance_data() -> &'static RwLock<HashMap<u64, InstanceEntry>> {
     INSTANCE_DATA.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-/// Convert a UObjectHandle to a u64 key for HashMap storage.
-#[inline]
-fn handle_to_key(h: UObjectHandle) -> u64 {
-    #[cfg(not(target_arch = "wasm32"))]
-    { h.0 as usize as u64 }
-    #[cfg(target_arch = "wasm32")]
-    { h.0 }
-}
-
 // ---------------------------------------------------------------------------
 // Type registry
 // ---------------------------------------------------------------------------
 
 /// Register a Rust type for reification. Must be called before `create_class`.
 pub fn register_type(type_id: u64, info: RustTypeInfo) {
-    type_registry()
-        .lock()
-        .unwrap()
+    lock_or_recover(type_registry())
         .insert(type_id, info);
 }
 
@@ -135,7 +126,7 @@ pub fn register_function<F>(f: F) -> u64
 where
     F: Fn(UObjectHandle, *mut u8, NativePtr) + Send + Sync + 'static,
 {
-    let mut vec = func_registry().write().unwrap();
+    let mut vec = write_or_recover(func_registry());
     let id = vec.len() as u64;
     vec.push(Arc::new(f));
     id
@@ -148,7 +139,7 @@ where
 /// Construct a Rust instance for a newly created UObject.
 /// Called from the C++ class constructor via `construct_rust_instance` callback.
 pub fn construct_instance(obj: UObjectHandle, type_id: u64) {
-    let types = type_registry().lock().unwrap();
+    let types = lock_or_recover(type_registry());
     let Some(info) = types.get(&type_id) else {
         // Log warning — type not registered (might be a CDO before registration completes)
         if crate::api::is_api_initialized() {
@@ -163,21 +154,19 @@ pub fn construct_instance(obj: UObjectHandle, type_id: u64) {
     let data = (info.construct_fn)();
     drop(types); // Release lock before acquiring instance_data lock
 
-    let key = handle_to_key(obj);
-    instance_data()
-        .write()
-        .unwrap()
+    let key = obj.to_addr();
+    write_or_recover(instance_data())
         .insert(key, InstanceEntry { data, type_id });
 }
 
 /// Drop and remove the Rust instance for a destroyed UObject.
 /// Called from the C++ delete listener via `drop_rust_instance` callback.
 pub fn drop_instance(obj: UObjectHandle, _type_id: u64) {
-    let key = handle_to_key(obj);
-    let entry = instance_data().write().unwrap().remove(&key);
+    let key = obj.to_addr();
+    let entry = write_or_recover(instance_data()).remove(&key);
 
     if let Some(entry) = entry {
-        let types = type_registry().lock().unwrap();
+        let types = lock_or_recover(type_registry());
         if let Some(info) = types.get(&entry.type_id) {
             unsafe {
                 (info.drop_fn)(entry.data);
@@ -189,12 +178,10 @@ pub fn drop_instance(obj: UObjectHandle, _type_id: u64) {
 /// Invoke a registered Rust function callback.
 /// Called from the C++ thunk via `invoke_rust_function` callback.
 pub fn invoke_function(callback_id: u64, obj: UObjectHandle, params: NativePtr) {
-    let key = handle_to_key(obj);
+    let key = obj.to_addr();
 
     // Look up instance data for this object (read lock — non-exclusive).
-    let rust_data = instance_data()
-        .read()
-        .unwrap()
+    let rust_data = read_or_recover(instance_data())
         .get(&key)
         .map(|e| e.data)
         .unwrap_or(std::ptr::null_mut());
@@ -203,14 +190,14 @@ pub fn invoke_function(callback_id: u64, obj: UObjectHandle, params: NativePtr) 
     // BEFORE invoking the callback. This prevents deadlocks if the callback
     // makes FFI calls that re-enter Rust.
     let func = {
-        let vec = func_registry().read().unwrap();
+        let vec = read_or_recover(func_registry());
         vec.get(callback_id as usize).cloned()
     };
 
     if let Some(func) = func {
         func(obj, rust_data, params);
     } else if crate::api::is_api_initialized() {
-        let vec_len = func_registry().read().unwrap().len();
+        let vec_len = read_or_recover(func_registry()).len();
         let msg = format!(
             "[Uika] invoke_function: callback_id {} not found (registry size = {})",
             callback_id, vec_len,
@@ -227,8 +214,8 @@ pub fn invoke_function(callback_id: u64, obj: UObjectHandle, params: NativePtr) 
 pub fn clear_all() {
     // 1. Drop all instance data, using the type's drop_fn.
     if let Some(instances) = INSTANCE_DATA.get() {
-        let mut map = instances.write().unwrap();
-        let types = type_registry().lock().unwrap();
+        let mut map = write_or_recover(instances);
+        let types = lock_or_recover(type_registry());
         for (_, entry) in map.drain() {
             if let Some(info) = types.get(&entry.type_id) {
                 unsafe {
@@ -240,21 +227,19 @@ pub fn clear_all() {
     }
     // 2. Clear function registry.
     if let Some(funcs) = FUNC_REGISTRY.get() {
-        funcs.write().unwrap().clear();
+        write_or_recover(funcs).clear();
     }
     // 3. Clear type registry.
     if let Some(types) = TYPE_REGISTRY.get() {
-        types.lock().unwrap().clear();
+        lock_or_recover(types).clear();
     }
 }
 
 /// Get the Rust instance data pointer for a UObject.
 /// Returns null if no instance data is registered.
 pub fn get_instance_data(obj: UObjectHandle) -> *mut u8 {
-    let key = handle_to_key(obj);
-    instance_data()
-        .read()
-        .unwrap()
+    let key = obj.to_addr();
+    read_or_recover(instance_data())
         .get(&key)
         .map(|e| e.data)
         .unwrap_or(std::ptr::null_mut())

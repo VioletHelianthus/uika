@@ -328,7 +328,7 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
     let ue_class_impl = quote! {
         impl ::uika::runtime::UeClass for #struct_name {
             fn static_class() -> ::uika::ffi::UClassHandle {
-                *#class_handle_name.get().expect(concat!(stringify!(#struct_name), " not yet registered"))
+                *#class_handle_name.get().expect(concat!("Failed to find UClass for ", stringify!(#struct_name), " — was it registered?"))
             }
         }
     };
@@ -427,6 +427,15 @@ pub fn expand_uclass(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
             }
         });
     }
+
+    // as_ref: convenience method to get a UObjectRef to the parent type
+    let as_ref_parent = &args.parent_path;
+    accessor_methods.push(quote! {
+        /// Get a `UObjectRef` to the underlying UE object (typed as the parent class).
+        pub fn as_ref(&self) -> ::uika::runtime::UObjectRef<#as_ref_parent> {
+            unsafe { ::uika::runtime::UObjectRef::from_raw(self.__obj) }
+        }
+    });
 
     // from_obj: cast from UObjectRef<impl UeClass> to the reified struct
     accessor_methods.push(quote! {
