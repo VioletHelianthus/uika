@@ -24,6 +24,10 @@ pub struct UeConfig {
 pub struct BuildConfig {
     /// Cargo crate name of the cdylib to build. If not set, auto-detected from Cargo.toml.
     pub crate_name: Option<String>,
+    /// Path to an external crate directory (relative to config file location).
+    /// When set, `cargo build` uses `--manifest-path` instead of `-p`, allowing
+    /// the game crate to live outside the uika workspace.
+    pub crate_path: Option<String>,
     /// Extra features to pass to `cargo build` (e.g. `["wasm-host"]`).
     #[serde(default)]
     pub features: Vec<String>,

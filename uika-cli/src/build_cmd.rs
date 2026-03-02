@@ -129,6 +129,9 @@ struct BuildContext {
     config_path: PathBuf,
     crate_name: String,
     config_dir: PathBuf,
+    /// Path to an external crate directory (resolved, absolute).
+    /// When set, `cargo build` uses `--manifest-path` instead of `-p`.
+    crate_path: Option<PathBuf>,
     /// Extra features for `cargo build` (from `[build].features`).
     features: Vec<String>,
 }
@@ -163,6 +166,12 @@ impl BuildContext {
             .and_then(|b| b.crate_name.clone())
             .unwrap_or_else(|| detect_cdylib_crate(config_dir));
 
+        let crate_path = config
+            .build
+            .as_ref()
+            .and_then(|b| b.crate_path.as_ref())
+            .map(|p| config_dir.join(p));
+
         let features = config
             .build
             .as_ref()
@@ -176,6 +185,7 @@ impl BuildContext {
             config_path: config_path.to_path_buf(),
             crate_name,
             config_dir: config_dir.to_path_buf(),
+            crate_path,
             features,
         }
     }
@@ -295,7 +305,21 @@ impl BuildContext {
 
     /// Step 4: cargo build --release.
     fn step4_cargo_build(&self) {
-        let mut args = vec!["cargo", "build", "--release", "-p", &self.crate_name];
+        let manifest_path_str;
+        let mut args = vec!["cargo", "build", "--release"];
+
+        if let Some(ref crate_path) = self.crate_path {
+            // External crate: use --manifest-path
+            let manifest = crate_path.join("Cargo.toml");
+            manifest_path_str = manifest.to_string_lossy().into_owned();
+            args.push("--manifest-path");
+            args.push(&manifest_path_str);
+        } else {
+            // Workspace member: use -p
+            args.push("-p");
+            args.push(&self.crate_name);
+        }
+
         let features_str = self.features.join(",");
         if !features_str.is_empty() {
             args.push("--features");
@@ -309,14 +333,22 @@ impl BuildContext {
         // Cargo converts hyphens to underscores in output filenames
         let dll_filename = format!("{}.dll", self.crate_name.replace('-', "_"));
 
-        // Cargo outputs to {cargo_workspace}/target/release/. Try CWD first
-        // (step 4 runs cargo from CWD), then fall back to config_dir.
+        // Search order for the built DLL:
+        // 1. External crate's own target dir (when crate_path is set)
+        // 2. CWD/target/release/ (workspace member, step 4 runs from CWD)
+        // 3. config_dir/target/release/ (fallback)
+        let external_target = self.crate_path.as_ref().map(|p| {
+            p.join("target/release").join(&dll_filename)
+        });
         let cwd_target = std::env::current_dir()
             .unwrap_or_default()
             .join("target/release")
             .join(&dll_filename);
         let config_target = self.config_dir.join("target/release").join(&dll_filename);
-        let src = if cwd_target.exists() {
+
+        let src = if external_target.as_ref().is_some_and(|p| p.exists()) {
+            external_target.unwrap()
+        } else if cwd_target.exists() {
             cwd_target
         } else {
             config_target
