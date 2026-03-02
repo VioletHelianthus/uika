@@ -124,6 +124,24 @@ unsafe impl ContainerElement for uika_ffi::FNameHandle {
     }}
 }
 
+// FKey: #[repr(transparent)] over FNameHandle, same 8-byte layout
+unsafe impl ContainerElement for crate::FKey {
+    const BUF_SIZE: u32 = 8;
+    const RAW_COPYABLE: bool = true;
+
+    #[inline]
+    unsafe fn read_from_buf(buf: *const u8, _written: u32) -> Self { unsafe {
+        let handle = (buf as *const uika_ffi::FNameHandle).read_unaligned();
+        crate::FKey(handle)
+    }}
+
+    #[inline]
+    unsafe fn write_to_buf(&self, buf: *mut u8) -> u32 { unsafe {
+        (buf as *mut uika_ffi::FNameHandle).write_unaligned(self.0);
+        8
+    }}
+}
+
 // UObjectRef<T>: delegates to UObjectHandle (8-byte pointer)
 unsafe impl<T: UeClass> ContainerElement for UObjectRef<T> {
     const BUF_SIZE: u32 = std::mem::size_of::<UObjectHandle>() as u32;

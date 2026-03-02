@@ -249,7 +249,7 @@ pub fn generate_property(
                 .unwrap_or(&mapped.rust_ffi_type);
             generate_enum_getter(out, &rust_name, &byte_lit, prop_name_len, pctx, &mapped, actual_repr);
         }
-        ConversionKind::FName => {
+        ConversionKind::FName | ConversionKind::FKey => {
             generate_fname_getter(out, &rust_name, &byte_lit, prop_name_len, pctx);
         }
         ConversionKind::IntCast => {
@@ -276,7 +276,7 @@ pub fn generate_property(
         ConversionKind::EnumCast => {
             generate_enum_setter(out, &rust_name, &byte_lit, prop_name_len, pctx, &mapped);
         }
-        ConversionKind::FName => {
+        ConversionKind::FName | ConversionKind::FKey => {
             generate_fname_setter(out, &rust_name, &byte_lit, prop_name_len, pctx);
         }
         ConversionKind::IntCast => {

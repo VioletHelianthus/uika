@@ -133,6 +133,9 @@ pub fn emit_out_param_conversion(
         ConversionKind::FName => {
             pname.to_string()
         }
+        ConversionKind::FKey => {
+            format!("uika_runtime::FKey({pname})")
+        }
         _ => {
             pname.to_string()
         }

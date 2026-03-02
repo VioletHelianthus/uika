@@ -7,7 +7,7 @@ pub use uika_runtime::{
     UObjectRef, Pinned, UikaResult, UikaError, UeClass, UeStruct, UeEnum,
     OwnedStruct, UStructRef, UeArray, UeMap, UeSet,
     DynamicCall, DynamicCallResult, DelegateBinding,
-    FName, TWeakObjectPtr,
+    FName, FKey, TWeakObjectPtr,
     LOG_DISPLAY, LOG_WARNING, LOG_ERROR,
 };
 

@@ -535,6 +535,9 @@ fn generate_scalar_function(out: &mut String, entry: &FuncEntry, class_name: &st
                     {
                         out.push_str(&format!("{pname}.as_bytes().as_ptr(), "));
                     }
+                    ConversionKind::FKey => {
+                        out.push_str(&format!("{pname}.handle(), "));
+                    }
                     _ => {
                         out.push_str(&format!("{pname}, "));
                     }
@@ -614,6 +617,9 @@ fn generate_scalar_function(out: &mut String, entry: &FuncEntry, class_name: &st
                         out.push_str("        std::mem::forget(_ret_struct_buf);\n");
                         return_parts.push("_ret_ptr".to_string());
                     }
+                }
+                ConversionKind::FKey => {
+                    return_parts.push("uika_runtime::FKey(_ret)".to_string());
                 }
                 _ => {
                     return_parts.push("_ret".to_string());
@@ -1019,6 +1025,9 @@ fn generate_container_function(out: &mut String, entry: &FuncEntry, class_name: 
                         {
                             out.push_str(&format!("{pname}.as_bytes().as_ptr(), "));
                         }
+                        ConversionKind::FKey => {
+                            out.push_str(&format!("{pname}.handle(), "));
+                        }
                         _ => {
                             out.push_str(&format!("{pname}, "));
                         }
@@ -1244,6 +1253,9 @@ fn emit_container_return(
                         out.push_str("        std::mem::forget(__scalar_ret_buf);\n");
                         return_parts.push("__scalar_ptr".to_string());
                     }
+                }
+                ConversionKind::FKey => {
+                    return_parts.push("uika_runtime::FKey(__scalar_ret)".to_string());
                 }
                 _ => {
                     return_parts.push("__scalar_ret".to_string());

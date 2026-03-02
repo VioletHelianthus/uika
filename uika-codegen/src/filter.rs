@@ -79,7 +79,8 @@ fn is_property_exportable(prop: &PropertyInfo, available: &HashSet<String>) -> b
         }
     }
     if let Some(ref sn) = prop.struct_name {
-        if !available.contains(sn) {
+        // FKey is mapped to FName — always available, no module dependency.
+        if !type_map::is_fkey_struct(sn) && !available.contains(sn) {
             return false;
         }
     }
@@ -150,7 +151,8 @@ fn is_delegate_exportable(prop: &PropertyInfo, available: &HashSet<String>) -> b
             }
         }
         if let Some(sn) = param_value.get("struct_name").and_then(|v| v.as_str()) {
-            if !available.contains(sn) {
+            // FKey is mapped to FName — always available.
+            if !type_map::is_fkey_struct(sn) && !available.contains(sn) {
                 return false;
             }
         }
@@ -209,7 +211,8 @@ fn is_inner_type_exportable(inner: &PropertyInfo, available: &HashSet<String>) -
         }
     }
     if let Some(ref sn) = inner.struct_name {
-        if !available.contains(sn) {
+        // FKey is mapped to FName — always available, no module dependency.
+        if !type_map::is_fkey_struct(sn) && !available.contains(sn) {
             return false;
         }
     }
@@ -278,7 +281,10 @@ fn filter_functions(
                 }
             }
             if let Some(ref sn) = param.struct_name {
-                if !available.contains(sn) || blocked_structs.contains(sn.as_str()) {
+                // FKey is mapped to FName — always available, no module dependency.
+                if !type_map::is_fkey_struct(sn)
+                    && (!available.contains(sn) || blocked_structs.contains(sn.as_str()))
+                {
                     return false;
                 }
             }
