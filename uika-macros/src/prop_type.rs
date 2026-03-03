@@ -96,23 +96,6 @@ pub fn to_pascal_case(s: &str) -> String {
         .collect()
 }
 
-/// Check if a type can safely be read/written with `native_mem_read`/`native_mem_write`
-/// in Override function thunks. Superset of `map_type`: includes primitive uproperty
-/// types plus FFI-safe `#[repr(transparent)]` Copy structs like `FKey`.
-pub fn is_native_copy_type(ty: &Type) -> bool {
-    if map_type(ty).is_some() {
-        return true;
-    }
-    let type_str = match ty {
-        Type::Path(tp) => match tp.path.segments.last() {
-            Some(seg) => seg.ident.to_string(),
-            None => return false,
-        },
-        _ => return false,
-    };
-    matches!(type_str.as_str(), "FKey")
-}
-
 /// Compile-time FNV-1a hash of a byte string, producing u64.
 pub fn fnv1a_hash(s: &str) -> u64 {
     const FNV_OFFSET: u64 = 0xcbf29ce484222325;

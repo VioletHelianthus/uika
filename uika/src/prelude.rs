@@ -7,7 +7,7 @@ pub use uika_runtime::{
     UObjectRef, Pinned, UikaResult, UikaError, UeClass, UeStruct, UeEnum,
     OwnedStruct, UStructRef, UeArray, UeMap, UeSet,
     DynamicCall, DynamicCallResult, DelegateBinding,
-    FName, FKey, TWeakObjectPtr,
+    FName, TWeakObjectPtr,
     LOG_DISPLAY, LOG_WARNING, LOG_ERROR,
 };
 
@@ -66,6 +66,12 @@ pub use uika_bindings::manual::ue_box2d::OwnedFBox2DExt;
 // Engine types (feature-gated)
 #[cfg(feature = "engine")]
 pub use uika_bindings::engine::{Actor, ActorExt, World, WorldExt};
+
+// FKey (feature-gated via input)
+#[cfg(feature = "input")]
+pub use uika_bindings::input_core::FKey;
+#[cfg(feature = "input")]
+pub use uika_bindings::manual::fkey::FKeyExt;
 
 // World spawn/query extensions (feature-gated)
 #[cfg(feature = "engine")]

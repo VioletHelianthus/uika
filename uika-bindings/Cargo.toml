@@ -14,7 +14,7 @@ glam = "0.29"
 [features]
 default = ["core"]
 core = []
-engine = ["core"]
+engine = ["core", "input"]
 physics-core = ["engine"]
 input = ["core"]
 slate = ["core"]

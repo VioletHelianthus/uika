@@ -89,7 +89,7 @@ fn param_wasm_slots(param: &ParamInfo, dir: ParamDirection, mapped: &MappedType)
                 ConversionKind::StringUtf8 => vec![WasmParamSlot::PtrLen],
                 ConversionKind::StructOpaque => vec![WasmParamSlot::PtrLen],
                 ConversionKind::ObjectRef => vec![WasmParamSlot::Single(WasmValType::I64)],
-                ConversionKind::FName | ConversionKind::FKey => vec![WasmParamSlot::Single(WasmValType::I64)],
+                ConversionKind::FName => vec![WasmParamSlot::Single(WasmValType::I64)],
                 ConversionKind::EnumCast => vec![WasmParamSlot::Single(WasmValType::I32)],
                 _ => vec![WasmParamSlot::Single(ffi_type_to_wasm(&mapped.rust_ffi_type))],
             }
@@ -382,10 +382,6 @@ pub fn generate_wasm_scalar_body(
                     }
                     ConversionKind::FName => {
                         out.push_str(&format!("{pname}.0 as i64, "));
-                    }
-                    ConversionKind::FKey => {
-                        // FKey wraps FNameHandle: .handle() extracts FNameHandle, .0 gets u64
-                        out.push_str(&format!("{pname}.handle().0 as i64, "));
                     }
                     ConversionKind::StructOpaque if *dir == ParamDirection::In
                         && is_struct_owned(param.struct_name.as_deref(), ctx) =>
@@ -707,9 +703,6 @@ pub fn generate_wasm_container_body(
                         }
                         ConversionKind::FName => {
                             out.push_str(&format!("{pname}.0 as i64, "));
-                        }
-                        ConversionKind::FKey => {
-                            out.push_str(&format!("{pname}.handle().0 as i64, "));
                         }
                         ConversionKind::StructOpaque if dir == ParamDirection::In
                             && is_struct_owned(param.struct_name.as_deref(), ctx) =>
@@ -1349,7 +1342,7 @@ fn generate_single_host_func(entry: &FuncEntry, ctx: &CodegenContext) -> Option<
                     ConversionKind::ObjectRef => {
                         out.push_str(&format!("uika_ffi::UObjectHandle({pname} as usize as *mut std::ffi::c_void), "));
                     }
-                    ConversionKind::FName | ConversionKind::FKey => {
+                    ConversionKind::FName => {
                         out.push_str(&format!("uika_ffi::FNameHandle({pname} as u64), "));
                     }
                     ConversionKind::EnumCast => {
@@ -1480,7 +1473,7 @@ fn generate_single_host_func(entry: &FuncEntry, ctx: &CodegenContext) -> Option<
                     "            write_guest_bytes(&mut caller, {pname}_out as u32, &[{pname}_val as u8]);\n"
                 ));
             }
-            ConversionKind::FName | ConversionKind::FKey => {
+            ConversionKind::FName => {
                 // FNameHandle is a newtype around u64; write inner .0
                 out.push_str(&format!(
                     "            write_guest_bytes(\n\

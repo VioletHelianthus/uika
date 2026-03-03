@@ -25,8 +25,6 @@ enum ReturnStrategy {
     StructReturn,
     /// FName result -> pack to u64.
     FNameReturn,
-    /// FKey result -> extract FName via .GetFName(), then pack to u64.
-    FKeyReturn,
     /// Container return -> move-assign into temp container.
     ContainerReturn,
 }
@@ -41,7 +39,6 @@ enum PostCallAction {
     /// TSoftObjectPtr / TWeakObjectPtr output: call .Get() to extract raw pointer.
     SoftWeakObjectOutput(String),
     FNameOutput(String),
-    FKeyOutput(String),
     EnumOutput { name: String, ffi_type: String },
     /// InOut struct copyback: copy local back to mutable buffer.
     InOutStructCopyback { name: String, struct_cpp: String },
@@ -80,24 +77,14 @@ pub fn generate_wrapper_file(entries: &[&FuncEntry], ctx: &CodegenContext) -> St
         includes.insert("\"UObject/UnrealType.h\"".to_string());
     }
 
-    // Check if any function uses FName or FKey params or returns
-    let has_fname_or_fkey = entries.iter().any(|e| {
+    // Check if any function uses FName params or returns
+    let has_fname = entries.iter().any(|e| {
         e.func.params.iter().any(|p| {
-            matches!(map_param(p).rust_to_ffi, ConversionKind::FName | ConversionKind::FKey)
+            matches!(map_param(p).rust_to_ffi, ConversionKind::FName)
         })
     });
-    if has_fname_or_fkey {
+    if has_fname {
         includes.insert("\"UikaFNameHelper.h\"".to_string());
-    }
-
-    // FKey requires InputCoreTypes.h for the FKey definition
-    let has_fkey = entries.iter().any(|e| {
-        e.func.params.iter().any(|p| {
-            matches!(map_param(p).rust_to_ffi, ConversionKind::FKey)
-        })
-    });
-    if has_fkey {
-        includes.insert("\"InputCoreTypes.h\"".to_string());
     }
 
     for inc in &includes {
@@ -285,10 +272,6 @@ fn generate_wrapper_function(out: &mut String, entry: &FuncEntry, ctx: &CodegenC
                 out.push_str(&format!("    FName __Out{name};\n"));
                 post_call_actions.push(PostCallAction::FNameOutput(name.clone()));
             }
-            ConversionKind::FKey => {
-                out.push_str(&format!("    FKey __Out{name};\n"));
-                post_call_actions.push(PostCallAction::FKeyOutput(name.clone()));
-            }
             ConversionKind::EnumCast => {
                 let cpp_enum = resolve_enum_cpp_type(param);
                 let form = param.enum_cpp_form.unwrap_or(2);
@@ -365,7 +348,6 @@ fn generate_wrapper_function(out: &mut String, entry: &FuncEntry, ctx: &CodegenC
                         | ConversionKind::StructOpaque
                         | ConversionKind::ObjectRef
                         | ConversionKind::FName
-                        | ConversionKind::FKey
                         | ConversionKind::EnumCast => {
                             call_args.push(format!("__Out{}", param.name));
                         }
@@ -512,7 +494,7 @@ fn scalar_input_cpp_type(mapped: &MappedType, param: &ParamInfo, dir: ParamDirec
                 "const uint8_t*".to_string()
             }
         }
-        ConversionKind::FName | ConversionKind::FKey => "uint64_t".to_string(),
+        ConversionKind::FName => "uint64_t".to_string(),
         ConversionKind::ContainerArray | ConversionKind::ContainerMap | ConversionKind::ContainerSet
         | ConversionKind::Delegate | ConversionKind::MulticastDelegate =>
             unreachable!("container/delegate types are property-only, never function params"),
@@ -530,7 +512,7 @@ fn scalar_output_cpp_type(mapped: &MappedType, param: &ParamInfo) -> String {
         }
         ConversionKind::IntCast => format!("{}*", int_ctype(&mapped.cpp_type)),
         ConversionKind::StructOpaque => "uint8_t*".to_string(),
-        ConversionKind::FName | ConversionKind::FKey => "uint64_t*".to_string(),
+        ConversionKind::FName => "uint64_t*".to_string(),
         ConversionKind::ContainerArray | ConversionKind::ContainerMap | ConversionKind::ContainerSet
         | ConversionKind::Delegate | ConversionKind::MulticastDelegate =>
             unreachable!("container/delegate types are property-only, never function params"),
@@ -678,9 +660,6 @@ fn input_arg_expression(param: &ParamInfo, dir: ParamDirection, ctx: &CodegenCon
         ConversionKind::FName => {
             format!("UikaUnpackFName({})", param.name)
         }
-        ConversionKind::FKey => {
-            format!("FKey(UikaUnpackFName({}))", param.name)
-        }
         ConversionKind::ContainerArray | ConversionKind::ContainerMap | ConversionKind::ContainerSet
         | ConversionKind::Delegate | ConversionKind::MulticastDelegate =>
             unreachable!("container/delegate types are property-only, never function params"),
@@ -725,7 +704,6 @@ fn return_strategy(param: &ParamInfo) -> ReturnStrategy {
         }
         ConversionKind::StructOpaque => ReturnStrategy::StructReturn,
         ConversionKind::FName => ReturnStrategy::FNameReturn,
-        ConversionKind::FKey => ReturnStrategy::FKeyReturn,
         ConversionKind::ContainerArray | ConversionKind::ContainerMap | ConversionKind::ContainerSet
         | ConversionKind::Delegate | ConversionKind::MulticastDelegate =>
             unreachable!("container/delegate types are property-only, never function return types"),
@@ -785,12 +763,6 @@ fn emit_return(out: &mut String, strategy: &ReturnStrategy, call_expr: &str) {
             out.push_str(&format!("    FName __UikaResult = {call_expr};\n"));
             out.push_str(
                 "    *OutReturnValue = UikaPackFName(__UikaResult);\n",
-            );
-        }
-        ReturnStrategy::FKeyReturn => {
-            out.push_str(&format!("    FKey __UikaResult = {call_expr};\n"));
-            out.push_str(
-                "    *OutReturnValue = UikaPackFName(__UikaResult.GetFName());\n",
             );
         }
         ReturnStrategy::ContainerReturn => {
@@ -875,11 +847,6 @@ fn emit_post_call(out: &mut String, action: &PostCallAction) {
         PostCallAction::FNameOutput(name) => {
             out.push_str(&format!(
                 "    *Out{name} = UikaPackFName(__Out{name});\n"
-            ));
-        }
-        PostCallAction::FKeyOutput(name) => {
-            out.push_str(&format!(
-                "    *Out{name} = UikaPackFName(__Out{name}.GetFName());\n"
             ));
         }
         PostCallAction::EnumOutput { name, ffi_type } => {

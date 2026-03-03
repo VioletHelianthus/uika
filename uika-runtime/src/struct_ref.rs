@@ -69,6 +69,23 @@ impl<T: UeStruct> UStructRef<T> {
     }
 }
 
+/// Create a `UStructRef<T>` from a native parameter buffer pointer + byte offset.
+///
+/// Used by `#[uclass_impl]` macro for Override function struct parameters.
+/// Cross-platform: handles both native (`*mut u8`) and wasm32 (`u64`) pointer types.
+#[cfg(not(target_arch = "wasm32"))]
+#[inline(always)]
+pub unsafe fn struct_ref_from_param<T: UeStruct>(ptr: *mut u8, offset: usize) -> UStructRef<T> {
+    unsafe { UStructRef::from_raw(ptr.add(offset)) }
+}
+
+/// Create a `UStructRef<T>` from a native parameter buffer pointer + byte offset (wasm32).
+#[cfg(target_arch = "wasm32")]
+#[inline(always)]
+pub unsafe fn struct_ref_from_param<T: UeStruct>(ptr: u64, offset: usize) -> UStructRef<T> {
+    unsafe { UStructRef::from_native_ptr(ptr + offset as u64) }
+}
+
 impl<T: UeStruct> std::fmt::Debug for UStructRef<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         #[cfg(not(target_arch = "wasm32"))]

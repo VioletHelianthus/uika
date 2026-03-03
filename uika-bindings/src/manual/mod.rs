@@ -23,5 +23,8 @@ pub mod plane;
 #[cfg(feature = "core")]
 pub mod ue_box2d;
 
+#[cfg(feature = "input")]
+pub mod fkey;
+
 #[cfg(feature = "engine")]
 pub mod world_ext;

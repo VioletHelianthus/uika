@@ -131,11 +131,20 @@ pub fn expand_uclass_impl(_attr: TokenStream, item: TokenStream) -> syn::Result<
             let rust_name = &param.rust_name;
             let rust_ty = &param.rust_ty;
             let idx = syn::Index::from(i);
-            param_reads.push(quote! {
-                let #rust_name: #rust_ty = unsafe {
-                    ::uika::runtime::ffi_dispatch::native_mem_read::<#rust_ty>(params, offsets[#idx] as usize)
-                };
-            });
+            if is_ustruct_ref_type(rust_ty) {
+                // UStructRef<T>: create a typed reference to struct data in the params buffer
+                param_reads.push(quote! {
+                    let #rust_name: #rust_ty = unsafe {
+                        ::uika::runtime::struct_ref_from_param(params, offsets[#idx] as usize)
+                    };
+                });
+            } else {
+                param_reads.push(quote! {
+                    let #rust_name: #rust_ty = unsafe {
+                        ::uika::runtime::ffi_dispatch::native_mem_read::<#rust_ty>(params, offsets[#idx] as usize)
+                    };
+                });
+            }
             param_idents.push(rust_name);
         }
 
@@ -376,6 +385,16 @@ fn parse_ufunction(method: &ImplItemFn) -> syn::Result<UFunctionInfo> {
         is_mut,
         is_override,
     })
+}
+
+/// Check if a type is `UStructRef<T>` by examining the last path segment.
+fn is_ustruct_ref_type(ty: &Type) -> bool {
+    if let Type::Path(tp) = ty {
+        if let Some(seg) = tp.path.segments.last() {
+            return seg.ident == "UStructRef";
+        }
+    }
+    false
 }
 
 fn parse_ufunction_specifiers(attr: &syn::Attribute) -> syn::Result<Vec<String>> {

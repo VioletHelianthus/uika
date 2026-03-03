@@ -22,7 +22,6 @@ pub mod delegate_registry;
 pub mod reify_registry;
 pub mod ue_math;
 pub mod fname;
-pub mod fkey;
 pub mod weak_ptr;
 pub mod world;
 
@@ -41,7 +40,7 @@ pub use delegate_registry::DelegateBinding;
 
 // Phase 10 re-exports.
 pub use fname::FName;
-pub use fkey::FKey;
+pub use struct_ref::struct_ref_from_param;
 pub use weak_ptr::TWeakObjectPtr;
 pub use ue_math::{
     Rotator, Transform, LinearColor, Color,

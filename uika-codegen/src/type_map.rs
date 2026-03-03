@@ -52,8 +52,6 @@ pub enum ConversionKind {
     StructOpaque,
     /// FName: FNameHandle on FFI.
     FName,
-    /// FKey: mapped to FNameHandle on FFI (FKey is semantically an FName wrapper).
-    FKey,
     /// TArray container property — returns UeArray<T> handle.
     ContainerArray,
     /// TMap container property — returns UeMap<K, V> handle.
@@ -100,11 +98,6 @@ const SUPPORTED_TYPES: &[&str] = &[
 /// Check if a property type is supported in Phase 3.
 pub fn is_supported_type(prop_type: &str) -> bool {
     SUPPORTED_TYPES.contains(&prop_type)
-}
-
-/// Check if a struct_name refers to FKey (which is mapped to FName, not a regular struct).
-pub fn is_fkey_struct(struct_name: &str) -> bool {
-    struct_name == "Key"
 }
 
 /// Map a UE property type string to its Rust/C++ type information.
@@ -297,19 +290,6 @@ pub fn map_property_type(
         }
         "StructProperty" => {
             if let Some(sn) = struct_name {
-                // FKey is semantically an FName wrapper — map to FNameHandle for ergonomics.
-                if is_fkey_struct(sn) {
-                    return MappedType {
-                        rust_type: "uika_runtime::FKey".into(),
-                        rust_ffi_type: "uika_runtime::FNameHandle".into(),
-                        cpp_type: "FKey".into(),
-                        property_getter: "get_fname".into(),
-                        property_setter: "set_fname".into(),
-                        rust_to_ffi: ConversionKind::FKey,
-                        ffi_to_rust: ConversionKind::FKey,
-                        supported: true,
-                    };
-                }
                 MappedType {
                     rust_type: format!("*const u8 /* {sn} */"),
                     rust_ffi_type: "*const u8".into(),
@@ -567,10 +547,6 @@ pub fn container_element_rust_type(
         }
         "StructProperty" => {
             if let Some(sn) = &inner.struct_name {
-                // FKey → FKey (same FFI representation as FName)
-                if is_fkey_struct(sn) {
-                    return Some("uika_runtime::FKey".into());
-                }
                 if let Some(ctx) = ctx {
                     if let Some(si) = ctx.structs.get(sn.as_str()) {
                         if si.has_static_struct {
