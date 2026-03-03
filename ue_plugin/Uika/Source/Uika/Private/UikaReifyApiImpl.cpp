@@ -5,6 +5,7 @@
 #include "UUikaReifiedFunction.h"
 #include "UikaModule.h"
 #include "Engine/Blueprint.h"
+#include "GameFramework/Actor.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UnrealType.h"
 #include "UObject/UObjectArray.h"
@@ -181,6 +182,135 @@ static FProperty* CreatePropertyByType(
     }
 
     return Prop;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Copy parameter properties from a parent function to a new override
+// ---------------------------------------------------------------------------
+
+static void CopyParamsFromParentFunction(UFunction* NewFunc, UFunction* ParentFunc)
+{
+    for (FField* SrcField = ParentFunc->ChildProperties; SrcField; SrcField = SrcField->Next)
+    {
+        FProperty* SrcProp = CastField<FProperty>(SrcField);
+        if (!SrcProp)
+        {
+            continue;
+        }
+
+        // Map source property type back to our enum so we can use CreatePropertyByType
+        EUikaReifyPropType PropType;
+        FUikaReifyPropExtra Extra = {};
+
+        // Check FClassProperty before FObjectProperty (FClassProperty extends FObjectProperty)
+        if (SrcProp->IsA<FBoolProperty>())
+        {
+            PropType = EUikaReifyPropType::Bool;
+        }
+        else if (SrcProp->IsA<FInt8Property>())
+        {
+            PropType = EUikaReifyPropType::Int8;
+        }
+        else if (SrcProp->IsA<FInt16Property>())
+        {
+            PropType = EUikaReifyPropType::Int16;
+        }
+        else if (SrcProp->IsA<FIntProperty>())
+        {
+            PropType = EUikaReifyPropType::Int32;
+        }
+        else if (SrcProp->IsA<FInt64Property>())
+        {
+            PropType = EUikaReifyPropType::Int64;
+        }
+        else if (SrcProp->IsA<FByteProperty>())
+        {
+            PropType = EUikaReifyPropType::UInt8;
+        }
+        else if (SrcProp->IsA<FUInt16Property>())
+        {
+            PropType = EUikaReifyPropType::UInt16;
+        }
+        else if (SrcProp->IsA<FUInt32Property>())
+        {
+            PropType = EUikaReifyPropType::UInt32;
+        }
+        else if (SrcProp->IsA<FUInt64Property>())
+        {
+            PropType = EUikaReifyPropType::UInt64;
+        }
+        else if (SrcProp->IsA<FFloatProperty>())
+        {
+            PropType = EUikaReifyPropType::Float;
+        }
+        else if (SrcProp->IsA<FDoubleProperty>())
+        {
+            PropType = EUikaReifyPropType::Double;
+        }
+        else if (SrcProp->IsA<FStrProperty>())
+        {
+            PropType = EUikaReifyPropType::String;
+        }
+        else if (SrcProp->IsA<FNameProperty>())
+        {
+            PropType = EUikaReifyPropType::Name;
+        }
+        else if (SrcProp->IsA<FTextProperty>())
+        {
+            PropType = EUikaReifyPropType::Text;
+        }
+        else if (SrcProp->IsA<FStructProperty>())
+        {
+            PropType = EUikaReifyPropType::Struct;
+            Extra.struct_handle.ptr = CastField<FStructProperty>(SrcProp)->Struct;
+        }
+        else if (SrcProp->IsA<FClassProperty>())
+        {
+            PropType = EUikaReifyPropType::Class;
+            Extra.class_handle.ptr = CastField<FClassProperty>(SrcProp)->PropertyClass;
+            Extra.meta_class_handle.ptr = CastField<FClassProperty>(SrcProp)->MetaClass;
+        }
+        else if (SrcProp->IsA<FObjectProperty>())
+        {
+            PropType = EUikaReifyPropType::Object;
+            Extra.class_handle.ptr = CastField<FObjectProperty>(SrcProp)->PropertyClass;
+        }
+        else if (SrcProp->IsA<FEnumProperty>())
+        {
+            PropType = EUikaReifyPropType::Enum;
+            Extra.enum_handle.ptr = CastField<FEnumProperty>(SrcProp)->GetEnum();
+        }
+        else
+        {
+            UE_LOG(LogUika, Warning,
+                TEXT("[Uika] CopyParamsFromParent: unsupported property type '%s' for param '%s', skipping"),
+                *SrcProp->GetClass()->GetName(), *SrcProp->GetName());
+            continue;
+        }
+
+        FProperty* NewProp = CreatePropertyByType(
+            FFieldVariant(NewFunc), SrcProp->GetFName(), PropType, &Extra);
+
+        if (NewProp)
+        {
+            NewProp->PropertyFlags = SrcProp->PropertyFlags;
+
+            // Append to end of ChildProperties (preserve parameter order)
+            if (!NewFunc->ChildProperties)
+            {
+                NewFunc->ChildProperties = NewProp;
+            }
+            else
+            {
+                FField* Last = NewFunc->ChildProperties;
+                while (Last->Next)
+                {
+                    Last = Last->Next;
+                }
+                Last->Next = NewProp;
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +505,24 @@ static UikaUFunctionHandle AddFunctionImpl(
     NewFunc->Next = Class->Children;
     Class->Children = NewFunc;
 
+    // For Override functions (BlueprintEvent), copy parameter definitions from
+    // the parent class's function. This way the macro doesn't need to know how
+    // to register struct/complex parameter types — they're inherited from UHT.
+    if (static_cast<EFunctionFlags>(FuncFlags) & FUNC_BlueprintEvent)
+    {
+        UFunction* ParentFunc = Class->GetSuperClass()
+            ? Class->GetSuperClass()->FindFunctionByName(NewFunc->GetFName())
+            : nullptr;
+
+        if (ParentFunc)
+        {
+            CopyParamsFromParentFunction(NewFunc, ParentFunc);
+            UE_LOG(LogUika, Display,
+                TEXT("[Uika] Override %s::%s: copied params from parent %s"),
+                *Class->GetName(), *FuncName, *ParentFunc->GetOuter()->GetName());
+        }
+    }
+
     // Register the native function name for the VM.
     Class->AddNativeFunction(*FuncName, &UUikaReifiedFunction::execCallRustFunction);
     Class->AddFunctionToFunctionMap(NewFunc, NewFunc->GetFName());
@@ -481,6 +629,25 @@ static EUikaErrorCode FinalizeClassImpl(UikaUClassHandle Cls)
     // (builds CustomPropertyListForPostConstruction, etc.).
     UObject* CDO = Class->GetDefaultObject(true);
     Class->PostLoadDefaultObject(CDO);
+
+    // Enable ticking if this class overrides ReceiveTick.
+    // Some native classes (e.g. AGameModeBase) set bCanEverTick=false in their
+    // C++ constructor, which makes SetActorTickEnabled(true) silently fail.
+    if (AActor* ActorCDO = Cast<AActor>(CDO))
+    {
+        for (TFieldIterator<UFunction> FuncIt(Class, EFieldIteratorFlags::ExcludeSuper); FuncIt; ++FuncIt)
+        {
+            if ((*FuncIt)->GetFName() == FName(TEXT("ReceiveTick")))
+            {
+                ActorCDO->PrimaryActorTick.bCanEverTick = true;
+                ActorCDO->PrimaryActorTick.bStartWithTickEnabled = true;
+                UE_LOG(LogUika, Display,
+                    TEXT("[Uika] Enabled tick for %s (ReceiveTick override detected)"),
+                    *Class->GetName());
+                break;
+            }
+        }
+    }
 
     UE_LOG(LogUika, Display, TEXT("[Uika] Finalized reified class: %s (size: %d, super_size: %d)"),
         *Class->GetName(), Class->GetPropertiesSize(),

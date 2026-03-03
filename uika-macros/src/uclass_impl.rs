@@ -226,45 +226,47 @@ pub fn expand_uclass_impl(_attr: TokenStream, item: TokenStream) -> syn::Result<
             };
         });
 
-        // Add function params
-        for param in &uf.params {
-            let info = prop_type::map_type(&param.rust_ty).unwrap();
-            let param_ue_name = &param.ue_name;
-            let param_ue_bytes = param_ue_name.as_bytes();
-            let param_ue_len = param_ue_name.len() as u32;
-            let prop_type_expr = &info.prop_type_expr;
+        // Add function params — skip for Override (C++ copies from parent function)
+        if !uf.is_override {
+            for param in &uf.params {
+                let info = prop_type::map_type(&param.rust_ty).unwrap();
+                let param_ue_name = &param.ue_name;
+                let param_ue_bytes = param_ue_name.as_bytes();
+                let param_ue_len = param_ue_name.len() as u32;
+                let prop_type_expr = &info.prop_type_expr;
 
-            register_stmts.push(quote! {
-                unsafe {
-                    ::uika::runtime::ffi_dispatch::reify_add_function_param(
-                        #func_var,
-                        [#(#param_ue_bytes),*].as_ptr(),
-                        #param_ue_len,
-                        #prop_type_expr as u32,
-                        ::uika::ffi::CPF_PARM,
-                        std::ptr::null(),
-                    );
-                }
-            });
-        }
+                register_stmts.push(quote! {
+                    unsafe {
+                        ::uika::runtime::ffi_dispatch::reify_add_function_param(
+                            #func_var,
+                            [#(#param_ue_bytes),*].as_ptr(),
+                            #param_ue_len,
+                            #prop_type_expr as u32,
+                            ::uika::ffi::CPF_PARM,
+                            std::ptr::null(),
+                        );
+                    }
+                });
+            }
 
-        // Add return param if any
-        if let Some(ref ret) = uf.return_type {
-            let info = prop_type::map_type(&ret.rust_ty).unwrap();
-            let prop_type_expr = &info.prop_type_expr;
+            // Add return param if any
+            if let Some(ref ret) = uf.return_type {
+                let info = prop_type::map_type(&ret.rust_ty).unwrap();
+                let prop_type_expr = &info.prop_type_expr;
 
-            register_stmts.push(quote! {
-                unsafe {
-                    ::uika::runtime::ffi_dispatch::reify_add_function_param(
-                        #func_var,
-                        b"ReturnValue".as_ptr(),
-                        11u32,
-                        #prop_type_expr as u32,
-                        ::uika::ffi::CPF_PARM | ::uika::ffi::CPF_OUT_PARM | ::uika::ffi::CPF_RETURN_PARM,
-                        std::ptr::null(),
-                    );
-                }
-            });
+                register_stmts.push(quote! {
+                    unsafe {
+                        ::uika::runtime::ffi_dispatch::reify_add_function_param(
+                            #func_var,
+                            b"ReturnValue".as_ptr(),
+                            11u32,
+                            #prop_type_expr as u32,
+                            ::uika::ffi::CPF_PARM | ::uika::ffi::CPF_OUT_PARM | ::uika::ffi::CPF_RETURN_PARM,
+                            std::ptr::null(),
+                        );
+                    }
+                });
+            }
         }
     }
 
@@ -325,7 +327,10 @@ fn parse_ufunction(method: &ImplItemFn) -> syn::Result<UFunctionInfo> {
                     )),
                 };
                 let ty = (*pat_type.ty).clone();
-                if prop_type::map_type(&ty).is_none() {
+                // Override functions get their param types from the parent UFunction
+                // (C++ copies them), so any Copy+repr(C) type is valid.
+                // Non-override functions must use types known to reify_add_function_param.
+                if !is_override && prop_type::map_type(&ty).is_none() {
                     return Err(syn::Error::new_spanned(
                         &ty,
                         "unsupported ufunction parameter type: only bool/i32/i64/u8/f32/f64 are supported",
@@ -348,7 +353,7 @@ fn parse_ufunction(method: &ImplItemFn) -> syn::Result<UFunctionInfo> {
                     return Err(syn::Error::new_spanned(ty, "tuple return types not supported"));
                 }
             } else {
-                if prop_type::map_type(ty).is_none() {
+                if !is_override && prop_type::map_type(ty).is_none() {
                     return Err(syn::Error::new_spanned(
                         ty,
                         "unsupported ufunction return type: only bool/i32/i64/u8/f32/f64 are supported",
