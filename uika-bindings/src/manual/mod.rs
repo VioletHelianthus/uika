@@ -28,3 +28,6 @@ pub mod fkey;
 
 #[cfg(feature = "engine")]
 pub mod world_ext;
+
+#[cfg(feature = "umg")]
+pub mod widget_ext;

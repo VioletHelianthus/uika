@@ -17,6 +17,7 @@ extern FUikaDelegateApi   GDelegateApi;
 extern FUikaLifecycleApi  GLifecycleApi;
 extern FUikaReifyApi      GReifyApi;
 extern FUikaWorldApi      GWorldApi;
+extern FUikaWidgetApi     GWidgetApi;
 
 // Reify helpers (defined in UikaReifyApiImpl.cpp)
 extern void UikaReifyRegisterDeleteListener();
@@ -81,6 +82,7 @@ static void FillApiTable()
     GApiTable.lifecycle    = &GLifecycleApi;
     GApiTable.reify        = &GReifyApi;
     GApiTable.world        = &GWorldApi;
+    GApiTable.widget       = &GWidgetApi;
 
     // Fill generated func_table (Phase 6)
     UikaFillFuncTable();

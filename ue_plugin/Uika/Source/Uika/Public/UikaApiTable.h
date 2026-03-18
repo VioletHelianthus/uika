@@ -305,6 +305,18 @@ struct FUikaReifyApi
         UikaUObjectHandle owner,
         const uint8* name, uint32 name_len);
 };
+struct FUikaWidgetApi
+{
+    // Create a UMG widget. owning_object should be a PlayerController, World, or GameInstance.
+    UikaUObjectHandle (*create_widget)(UikaUObjectHandle owning_object, UikaUClassHandle widget_class);
+
+    // Set the root widget of a UUserWidget's WidgetTree.
+    EUikaErrorCode (*set_root_widget)(UikaUObjectHandle user_widget, UikaUObjectHandle root_widget);
+
+    // Get the WidgetTree UObject from a UUserWidget.
+    UikaUObjectHandle (*get_widget_tree)(UikaUObjectHandle user_widget);
+};
+
 struct FUikaWorldApi
 {
     UikaUObjectHandle (*spawn_actor)(UikaUObjectHandle world, UikaUClassHandle cls,
@@ -348,6 +360,7 @@ struct FUikaApiTable
     const FUikaReifyApi*        reify;
     const FUikaWorldApi*        world;
     const FUikaLoggingApi*      logging;
+    const FUikaWidgetApi*       widget;
 
     // Generated function-pointer array
     const void* const*          func_table;

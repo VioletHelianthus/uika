@@ -29,6 +29,7 @@ pub struct UikaApiTable {
     pub reify: *const UikaReifyApi,
     pub world: *const UikaWorldApi,
     pub logging: *const UikaLoggingApi,
+    pub widget: *const UikaWidgetApi,
 
     // ---- Generated function-pointer array (codegen) ----
     /// Flat array indexed by codegen-assigned FuncId. Each pointer targets a
@@ -478,6 +479,31 @@ pub struct UikaReifyApi {
 
 pub const UIKA_COMP_ROOT: u32 = 1;
 pub const UIKA_COMP_TRANSIENT: u32 = 2;
+
+/// Widget creation and WidgetTree management (UMG).
+///
+/// `CreateWidget<T>()` is a C++ template not in UE reflection, so we expose it
+/// manually. WidgetTree/RootWidget are public C++ members on UUserWidget.
+#[repr(C)]
+pub struct UikaWidgetApi {
+    /// Create a UMG widget. `owning_object` should be a PlayerController, World, or GameInstance.
+    /// `widget_class` must be a UUserWidget subclass.
+    pub create_widget: unsafe extern "C" fn(
+        owning_object: UObjectHandle,
+        widget_class: UClassHandle,
+    ) -> UObjectHandle,
+
+    /// Set the root widget of a UUserWidget's WidgetTree.
+    pub set_root_widget: unsafe extern "C" fn(
+        user_widget: UObjectHandle,
+        root_widget: UObjectHandle,
+    ) -> UikaErrorCode,
+
+    /// Get the WidgetTree UObject from a UUserWidget.
+    pub get_widget_tree: unsafe extern "C" fn(
+        user_widget: UObjectHandle,
+    ) -> UObjectHandle,
+}
 
 /// World-level queries (spawn, find actors, etc.).
 #[repr(C)]
