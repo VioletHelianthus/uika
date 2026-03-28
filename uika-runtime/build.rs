@@ -249,9 +249,13 @@ fn generate_dispatch_wrapper(
     write!(out, "    {{ ((*crate::api::api().{}).{})(", table.module_name, func.name).unwrap();
     for (i, (name, _ty)) in rust_params.iter().enumerate() {
         if i > 0 { write!(out, ", ").unwrap(); }
-        // NativePtr → *mut u8 cast on native
+        // NativePtr → cast to the original pointer type on native
         if matches!(classes.get(i), Some(ParamClass::NativePtr)) {
-            write!(out, "{name} as *mut u8").unwrap();
+            if matches!(func.params[i].ty, ApiType::CVoidPtr { .. }) {
+                write!(out, "{name} as *mut std::ffi::c_void").unwrap();
+            } else {
+                write!(out, "{name} as *mut u8").unwrap();
+            }
         } else if matches!(classes.get(i), Some(ParamClass::NamedStructPtr)) {
             // NamedStructPtr: on native, the param IS the right pointer type, cast from i64
             let struct_info = match &func.params[i].ty {

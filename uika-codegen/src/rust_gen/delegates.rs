@@ -41,10 +41,12 @@ pub enum ParamConversion {
     ObjectRef(String),
     /// Enum: read underlying repr, convert via from_value.
     Enum { rust_type: String, repr: String },
-    /// FName: read FNameHandle directly.
+    /// FName: use read_param FFI to properly pack FName (Editor-safe).
     FName,
-    /// String: cannot be read from raw params easily — skip for now.
+    /// String/FText: use read_param FFI to read UTF-8 string.
     String,
+    /// Struct: use read_param FFI to read struct bytes, wrap in OwnedStruct<T>.
+    Struct { struct_name: String, cpp_name: String },
 }
 
 /// Collect delegate properties from a class and resolve their param types.
@@ -226,9 +228,19 @@ fn resolve_delegate_param(
             })
         }
         "StructProperty" => {
-            // Struct params in delegates require reading from raw memory.
-            // For now, skip struct params — they require special handling.
-            None
+            let sn = value.get("struct_name").and_then(|v| v.as_str())?;
+            let si = ctx.structs.get(sn)?;
+            if !si.has_static_struct {
+                return None;
+            }
+            Some(DelegateParam {
+                name: param_name,
+                rust_type: format!("uika_runtime::OwnedStruct<{}>", si.cpp_name),
+                conversion: ParamConversion::Struct {
+                    struct_name: sn.to_string(),
+                    cpp_name: si.cpp_name.clone(),
+                },
+            })
         }
         _ => None,
     }
@@ -291,11 +303,14 @@ pub fn generate_delegate_structs(
              }}\n\n"
         ));
 
-        // Build the closure parameter types and extraction code
-        let sig_name = d.prop.func_info.as_ref()
+        // Build the closure parameter types and extraction code.
+        // UHT exports the stripped function name (e.g., "OnEditableTextBoxCommittedEvent"),
+        // but UE stores the signature UFunction with "__DelegateSignature" suffix.
+        let sig_name_base = d.prop.func_info.as_ref()
             .and_then(|fi| fi.get("name"))
             .and_then(|n| n.as_str())
             .unwrap_or(&d.prop.name);
+        let sig_name = format!("{sig_name_base}__DelegateSignature");
         let sig_name_len = sig_name.len();
         let sig_byte_lit = format!("b\"{}\\0\"", sig_name);
 
@@ -315,12 +330,12 @@ pub fn generate_delegate_structs(
             "    pub fn {method_name}(&self, mut callback: impl FnMut({callback_sig}) + Send + 'static) -> uika_runtime::UikaResult<uika_runtime::DelegateBinding> {{\n"
         ));
 
-        // If there are params, we need to resolve offsets via OnceLock
+        // If there are params, we need to resolve offsets + property handles via OnceLock
         if !d.params.is_empty() {
             let n_params = d.params.len();
             out.push_str(&format!(
-                "        static OFFSETS: std::sync::OnceLock<[u32; {n_params}]> = std::sync::OnceLock::new();\n\
-                 \x20       let offsets = OFFSETS.get_or_init(|| unsafe {{\n\
+                "        static PARAM_INFO: std::sync::OnceLock<[(u32, uika_runtime::FPropertyHandle); {n_params}]> = std::sync::OnceLock::new();\n\
+                 \x20       let param_info = PARAM_INFO.get_or_init(|| unsafe {{\n\
                  \x20           let sig_func = uika_runtime::ffi_dispatch::reflection_find_function_by_class(\n\
                  \x20               {class_name}::static_class(),\n\
                  \x20               {sig_byte_lit}.as_ptr(), {sig_name_len});\n\
@@ -343,7 +358,7 @@ pub fn generate_delegate_structs(
                     "                {{\n\
                      \x20                   let param_prop = uika_runtime::ffi_dispatch::reflection_get_function_param(\n\
                      \x20                       sig_func, {pname_lit}.as_ptr(), {pname_len});\n\
-                     \x20                   uika_runtime::ffi_dispatch::reflection_get_property_offset(param_prop)\n\
+                     \x20                   (uika_runtime::ffi_dispatch::reflection_get_property_offset(param_prop), param_prop)\n\
                      \x20               }},\n"
                 ));
             }
@@ -351,7 +366,7 @@ pub fn generate_delegate_structs(
             out.push_str(
                 "            ]\n\
                  \x20       });\n\
-                 \x20       #[allow(unused_variables)] let offsets = offsets;\n"
+                 \x20       #[allow(unused_variables)] let param_info = param_info;\n"
             );
         }
 
@@ -369,50 +384,101 @@ pub fn generate_delegate_structs(
             continue;
         }
 
-        // Check if any param actually reads from the raw buffer
-        let needs_unsafe = d.params.iter().any(|p| !matches!(p.conversion, ParamConversion::String));
-        let params_var = if needs_unsafe { "params" } else { "_params" };
-
         out.push_str(&format!(
             "        let owner = self.owner;\n\
              \x20       let prop = self.prop;\n\
-             \x20       uika_runtime::delegate_registry::{api_fn}(owner, prop, move |{params_var}: uika_runtime::ffi_dispatch::NativePtr| {{\n"
+             \x20       uika_runtime::delegate_registry::{api_fn}(owner, prop, move |params: uika_runtime::ffi_dispatch::NativePtr| {{\n\
+             \x20           unsafe {{\n"
         ));
 
-        if needs_unsafe {
-            out.push_str("            unsafe {\n");
-        }
-
-        // Extract each parameter via native_mem_read (works on both native and wasm32)
+        // Extract each parameter
         for (i, p) in d.params.iter().enumerate() {
             let var_name = &p.name;
             match &p.conversion {
                 ParamConversion::Primitive(ty) => {
                     out.push_str(&format!(
-                        "                let {var_name} = uika_runtime::ffi_dispatch::native_mem_read::<{ty}>(params, offsets[{i}] as usize);\n"
+                        "                let {var_name} = uika_runtime::ffi_dispatch::native_mem_read::<{ty}>(params, param_info[{i}].0 as usize);\n"
                     ));
                 }
                 ParamConversion::ObjectRef(_cls) => {
                     out.push_str(&format!(
                         "                let {var_name} = uika_runtime::UObjectRef::from_raw(\n\
-                         \x20                   uika_runtime::ffi_dispatch::native_mem_read::<uika_runtime::UObjectHandle>(params, offsets[{i}] as usize)\n\
+                         \x20                   uika_runtime::ffi_dispatch::native_mem_read::<uika_runtime::UObjectHandle>(params, param_info[{i}].0 as usize)\n\
                          \x20               );\n"
                     ));
                 }
                 ParamConversion::Enum { rust_type, repr } => {
                     out.push_str(&format!(
-                        "                let __raw_{var_name} = uika_runtime::ffi_dispatch::native_mem_read::<{repr}>(params, offsets[{i}] as usize);\n\
+                        "                let __raw_{var_name} = uika_runtime::ffi_dispatch::native_mem_read::<{repr}>(params, param_info[{i}].0 as usize);\n\
                          \x20               let {var_name} = {rust_type}::from_value(__raw_{var_name}).unwrap_or_else(|| std::mem::transmute(__raw_{var_name}));\n"
                     ));
                 }
                 ParamConversion::FName => {
                     out.push_str(&format!(
-                        "                let {var_name} = uika_runtime::ffi_dispatch::native_mem_read::<uika_runtime::FNameHandle>(params, offsets[{i}] as usize);\n"
+                        "                let {var_name} = {{\n\
+                         \x20                   let mut __buf = [0u8; 8];\n\
+                         \x20                   let mut __written: u32 = 0;\n\
+                         \x20                   uika_runtime::ffi_infallible(uika_runtime::ffi_dispatch::delegate_read_param(\n\
+                         \x20                       param_info[{i}].1,\n\
+                         \x20                       params,\n\
+                         \x20                       param_info[{i}].0,\n\
+                         \x20                       __buf.as_mut_ptr(),\n\
+                         \x20                       8,\n\
+                         \x20                       &mut __written,\n\
+                         \x20                   ));\n\
+                         \x20                   uika_runtime::FNameHandle(u64::from_ne_bytes(__buf))\n\
+                         \x20               }};\n"
                     ));
                 }
                 ParamConversion::String => {
                     out.push_str(&format!(
-                        "                let {var_name} = String::new(); // TODO: string param extraction\n"
+                        "                let {var_name} = {{\n\
+                         \x20                   let mut __buf = vec![0u8; 260];\n\
+                         \x20                   let mut __written: u32 = 0;\n\
+                         \x20                   let __err = uika_runtime::ffi_dispatch::delegate_read_param(\n\
+                         \x20                       param_info[{i}].1,\n\
+                         \x20                       params,\n\
+                         \x20                       param_info[{i}].0,\n\
+                         \x20                       __buf.as_mut_ptr(),\n\
+                         \x20                       __buf.len() as u32,\n\
+                         \x20                       &mut __written,\n\
+                         \x20                   );\n\
+                         \x20                   if __err == uika_runtime::UikaErrorCode::BufferTooSmall && __written > 0 {{\n\
+                         \x20                       __buf.resize(__written as usize, 0);\n\
+                         \x20                       uika_runtime::ffi_infallible(uika_runtime::ffi_dispatch::delegate_read_param(\n\
+                         \x20                           param_info[{i}].1,\n\
+                         \x20                           params,\n\
+                         \x20                           param_info[{i}].0,\n\
+                         \x20                           __buf.as_mut_ptr(),\n\
+                         \x20                           __buf.len() as u32,\n\
+                         \x20                           &mut __written,\n\
+                         \x20                       ));\n\
+                         \x20                   }}\n\
+                         \x20                   if __written >= 4 {{\n\
+                         \x20                       let __slen = u32::from_ne_bytes([__buf[0], __buf[1], __buf[2], __buf[3]]) as usize;\n\
+                         \x20                       String::from_utf8_lossy(&__buf[4..4 + __slen]).into_owned()\n\
+                         \x20                   }} else {{\n\
+                         \x20                       String::new()\n\
+                         \x20                   }}\n\
+                         \x20               }};\n"
+                    ));
+                }
+                ParamConversion::Struct { cpp_name, .. } => {
+                    out.push_str(&format!(
+                        "                let {var_name} = {{\n\
+                         \x20                   let __size = uika_runtime::ffi_dispatch::reflection_get_property_size(param_info[{i}].1) as usize;\n\
+                         \x20                   let mut __buf = vec![0u8; __size];\n\
+                         \x20                   let mut __written: u32 = 0;\n\
+                         \x20                   uika_runtime::ffi_infallible(uika_runtime::ffi_dispatch::delegate_read_param(\n\
+                         \x20                       param_info[{i}].1,\n\
+                         \x20                       params,\n\
+                         \x20                       param_info[{i}].0,\n\
+                         \x20                       __buf.as_mut_ptr(),\n\
+                         \x20                       __size as u32,\n\
+                         \x20                       &mut __written,\n\
+                         \x20                   ));\n\
+                         \x20                   uika_runtime::OwnedStruct::<{cpp_name}>::from_bytes(__buf)\n\
+                         \x20               }};\n"
                     ));
                 }
             }
@@ -421,20 +487,12 @@ pub fn generate_delegate_structs(
         // Call the user's callback with extracted params
         let param_names: Vec<&str> = d.params.iter().map(|p| p.name.as_str()).collect();
         let call_args = param_names.join(", ");
-        if needs_unsafe {
-            out.push_str(&format!(
-                "                callback({call_args});\n\
-                 \x20           }}\n\
-                 \x20       }})\n\
-                 \x20   }}\n"
-            ));
-        } else {
-            out.push_str(&format!(
-                "            callback({call_args});\n\
-                 \x20       }})\n\
-                 \x20   }}\n"
-            ));
-        }
+        out.push_str(&format!(
+            "                callback({call_args});\n\
+             \x20           }}\n\
+             \x20       }})\n\
+             \x20   }}\n"
+        ));
 
         out.push_str("}\n\n");
     }

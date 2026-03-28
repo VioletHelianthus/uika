@@ -417,6 +417,18 @@ pub struct UikaDelegateApi {
         prop: FPropertyHandle,
         params: *mut u8,
     ) -> UikaErrorCode,
+
+    /// Read a typed parameter from a raw ProcessEvent params buffer.
+    /// String/Text: writes [u32 utf8_len][utf8 bytes]. FName: writes packed uint64.
+    /// Struct: CopyScriptStruct. Primitives/enum/object: raw memcpy.
+    pub read_param: unsafe extern "C" fn(
+        prop: FPropertyHandle,
+        params_buf: *mut c_void,
+        offset: u32,
+        out_buf: *mut u8,
+        out_buf_size: u32,
+        out_written: *mut u32,
+    ) -> UikaErrorCode,
 }
 
 /// Phase 9: Reify — runtime class creation, property/function registration.

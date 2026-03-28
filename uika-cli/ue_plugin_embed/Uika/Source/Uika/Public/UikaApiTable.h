@@ -239,6 +239,17 @@ struct FUikaDelegateApi
     EUikaErrorCode (*add_multicast)(UikaUObjectHandle obj, UikaFPropertyHandle prop, uint64 callback_id);
     EUikaErrorCode (*remove_multicast)(UikaUObjectHandle obj, UikaFPropertyHandle prop, uint64 callback_id);
     EUikaErrorCode (*broadcast_multicast)(UikaUObjectHandle obj, UikaFPropertyHandle prop, uint8* params);
+
+    // Read a typed parameter from a raw ProcessEvent params buffer.
+    // String/Text: writes [u32 utf8_len][utf8 bytes]. FName: writes packed uint64.
+    // Struct: CopyScriptStruct. Primitives/enum/object: raw memcpy.
+    EUikaErrorCode (*read_param)(
+        UikaFPropertyHandle prop,
+        void* params_buf,
+        uint32 offset,
+        uint8* out_buf,
+        uint32 out_buf_size,
+        uint32* out_written);
 };
 // ---------------------------------------------------------------------------
 // Reify API types
