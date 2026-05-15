@@ -1012,27 +1012,9 @@ impl<T: ContainerElement + Hash + Eq> UeSet<T> {
 /// Since UE structs are opaque (their layout is managed by C++), this type
 /// holds the raw bytes copied from the container. Use [`as_ref`](Self::as_ref)
 /// to get a `UStructRef<T>` for property access.
-///
-/// On native, the struct data lives in Rust (process) memory — same address space
-/// as C++. On wasm32, the struct is allocated in native (host) memory so that C++
-/// property API functions can access it directly. WASM guest code reads/writes the
-/// bytes through `native_mem_read`/`native_mem_write` host functions.
 pub struct OwnedStruct<T: UeStruct> {
-    /// On native: raw struct bytes in Rust heap.
-    /// On wasm32: not used (empty vec); data lives in native memory at `native_ptr`.
-    #[cfg(not(target_arch = "wasm32"))]
     data: Vec<u8>,
-    #[cfg(not(target_arch = "wasm32"))]
     needs_destroy: bool,
-
-    /// On wasm32: native (host) memory pointer and size.
-    #[cfg(target_arch = "wasm32")]
-    native_ptr: u64,
-    #[cfg(target_arch = "wasm32")]
-    size: u32,
-    #[cfg(target_arch = "wasm32")]
-    needs_destroy: bool,
-
     _marker: PhantomData<T>,
 }
 
@@ -1048,30 +1030,14 @@ impl<T: UeStruct> OwnedStruct<T> {
         let size = unsafe { ffi_dispatch::reflection_get_struct_size(ustruct) };
         debug_assert!(size > 0, "get_struct_size returned 0 for {}", std::any::type_name::<T>());
 
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let mut data = vec![0u8; size as usize];
-            ffi_infallible(unsafe {
-                ffi_dispatch::reflection_initialize_struct(ustruct, data.as_mut_ptr())
-            });
-            OwnedStruct {
-                data,
-                needs_destroy: true,
-                _marker: PhantomData,
-            }
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            // Allocate and initialize in native (host) memory so C++ property API
-            // can access the struct directly.
-            let native_ptr = unsafe { ffi_dispatch::uika_struct_alloc(ustruct.0 as i64) } as u64;
-            OwnedStruct {
-                native_ptr,
-                size,
-                needs_destroy: true,
-                _marker: PhantomData,
-            }
+        let mut data = vec![0u8; size as usize];
+        ffi_infallible(unsafe {
+            ffi_dispatch::reflection_initialize_struct(ustruct, data.as_mut_ptr())
+        });
+        OwnedStruct {
+            data,
+            needs_destroy: true,
+            _marker: PhantomData,
         }
     }
 
@@ -1080,177 +1046,56 @@ impl<T: UeStruct> OwnedStruct<T> {
     /// The data is assumed to already be initialized by C++ — no destructor
     /// will be called on drop.
     pub fn from_bytes(data: Vec<u8>) -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            OwnedStruct {
-                data,
-                needs_destroy: false,
-                _marker: PhantomData,
-            }
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            // Allocate native memory and copy the bytes there.
-            let ustruct = T::static_struct();
-            // Use the actual allocation size (from get_struct_size), not data.len(),
-            // so that deallocation uses the correct size.
-            let alloc_size = unsafe { ffi_dispatch::reflection_get_struct_size(ustruct) };
-            let native_ptr = unsafe { ffi_dispatch::uika_struct_alloc(ustruct.0 as i64) } as u64;
-            // Write the provided bytes into native memory (may be smaller than alloc_size).
-            let copy_len = (data.len() as u32).min(alloc_size);
-            unsafe {
-                ffi_dispatch::uika_write_native_mem(
-                    native_ptr as i64,
-                    data.as_ptr() as i32,
-                    copy_len as i32,
-                );
-            }
-            OwnedStruct {
-                native_ptr,
-                size: alloc_size,
-                needs_destroy: false, // from_bytes data is raw copy, no DestroyStruct needed
-                _marker: PhantomData,
-            }
+        OwnedStruct {
+            data,
+            needs_destroy: false,
+            _marker: PhantomData,
         }
     }
 
     /// Get a `UStructRef<T>` for property access on this struct data.
     pub fn as_ref(&self) -> UStructRef<T> {
-        #[cfg(not(target_arch = "wasm32"))]
-        { unsafe { UStructRef::from_raw(self.data.as_ptr() as *mut u8) } }
-
-        #[cfg(target_arch = "wasm32")]
-        { unsafe { UStructRef::from_native_ptr(self.native_ptr) } }
+        unsafe { UStructRef::from_raw(self.data.as_ptr() as *mut u8) }
     }
 
     /// Get the raw bytes of the struct data.
-    ///
-    /// On native, returns a direct slice. On wasm32, copies from native memory
-    /// into a new Vec (since the data lives in host memory).
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn as_bytes(&self) -> &[u8] {
         &self.data
     }
 
     /// Get the raw bytes of the struct data as an owned Vec.
-    ///
-    /// On native, copies from the local buffer. On wasm32, copies from native
-    /// (host) memory into WASM linear memory.
     pub fn to_bytes(&self) -> Vec<u8> {
-        #[cfg(not(target_arch = "wasm32"))]
-        { self.data.clone() }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            let mut buf = vec![0u8; self.size as usize];
-            unsafe {
-                ffi_dispatch::uika_read_native_mem(
-                    self.native_ptr as i64,
-                    buf.as_mut_ptr() as i32,
-                    self.size as i32,
-                );
-            }
-            buf
-        }
-    }
-
-    /// Get the native pointer to the struct data.
-    /// On native: the data pointer. On wasm32: the native (host) memory pointer.
-    #[cfg(target_arch = "wasm32")]
-    pub fn native_ptr(&self) -> u64 {
-        self.native_ptr
-    }
-
-    /// Get the struct size in bytes.
-    #[cfg(target_arch = "wasm32")]
-    pub fn size(&self) -> u32 {
-        self.size
+        self.data.clone()
     }
 }
 
 impl<T: UeStruct> Clone for OwnedStruct<T> {
     fn clone(&self) -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            OwnedStruct {
-                data: self.data.clone(),
-                needs_destroy: false,
-                _marker: PhantomData,
-            }
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            // Allocate new native memory and copy bytes.
-            let native_ptr = unsafe { ffi_dispatch::uika_struct_alloc(T::static_struct().0 as i64) } as u64;
-            // Copy from old native memory to new native memory via WASM roundtrip.
-            let bytes = self.to_bytes();
-            unsafe {
-                ffi_dispatch::uika_write_native_mem(
-                    native_ptr as i64,
-                    bytes.as_ptr() as i32,
-                    bytes.len() as i32,
-                );
-            }
-            OwnedStruct {
-                native_ptr,
-                size: self.size,
-                // Clone produces a raw byte copy — no DestroyStruct needed,
-                // but native memory IS freed on drop (via the Drop impl).
-                needs_destroy: false,
-                _marker: PhantomData,
-            }
+        OwnedStruct {
+            data: self.data.clone(),
+            needs_destroy: false,
+            _marker: PhantomData,
         }
     }
 }
 
 impl<T: UeStruct> Drop for OwnedStruct<T> {
     fn drop(&mut self) {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if self.needs_destroy {
-                unsafe {
-                    ffi_dispatch::reflection_destroy_struct(
-                        T::static_struct(),
-                        self.data.as_mut_ptr(),
-                    );
-                }
-            }
-            // Vec<u8> is always freed automatically.
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            if self.native_ptr != 0 {
-                if self.needs_destroy {
-                    // Full cleanup: DestroyStruct + dealloc.
-                    unsafe {
-                        ffi_dispatch::uika_struct_free(
-                            T::static_struct().0 as i64,
-                            self.native_ptr as i64,
-                        );
-                    }
-                } else {
-                    // Just free the native memory (no DestroyStruct).
-                    unsafe {
-                        ffi_dispatch::uika_native_free(
-                            self.native_ptr as i64,
-                            self.size as i32,
-                        );
-                    }
-                }
+        if self.needs_destroy {
+            unsafe {
+                ffi_dispatch::reflection_destroy_struct(
+                    T::static_struct(),
+                    self.data.as_mut_ptr(),
+                );
             }
         }
+        // Vec<u8> is always freed automatically.
     }
 }
 
 impl<T: UeStruct> std::fmt::Debug for OwnedStruct<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        #[cfg(not(target_arch = "wasm32"))]
-        { f.debug_struct("OwnedStruct").field("size", &self.data.len()).finish() }
-        #[cfg(target_arch = "wasm32")]
-        { f.debug_struct("OwnedStruct").field("size", &self.size).finish() }
+        f.debug_struct("OwnedStruct").field("size", &self.data.len()).finish()
     }
 }
 

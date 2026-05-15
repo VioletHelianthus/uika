@@ -168,15 +168,8 @@ pub fn get_all_actors_of_class_raw(
         .take(actual_count as usize)
         .map(|chunk| {
             let bytes: [u8; 8] = chunk.try_into().expect("handle is 8 bytes");
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                let ptr = usize::from_ne_bytes(bytes) as *mut std::ffi::c_void;
-                UObjectHandle(ptr)
-            }
-            #[cfg(target_arch = "wasm32")]
-            {
-                UObjectHandle(u64::from_ne_bytes(bytes))
-            }
+            let ptr = usize::from_ne_bytes(bytes) as *mut std::ffi::c_void;
+            UObjectHandle(ptr)
         })
         .collect();
 

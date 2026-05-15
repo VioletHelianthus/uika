@@ -22,7 +22,6 @@ pub struct UikaApiTable {
     pub core: *const UikaCoreApi,
     pub property: *const UikaPropertyApi,
     pub reflection: *const UikaReflectionApi,
-    pub memory: *const UikaMemoryApi,
     pub container: *const UikaContainerApi,
     pub delegate: *const UikaDelegateApi,
     pub lifecycle: *const UikaLifecycleApi,
@@ -260,21 +259,6 @@ pub struct UikaReflectionApi {
 
     /// Destroy struct memory (calls C++ destructors for non-trivial members).
     pub destroy_struct: unsafe extern "C" fn(ustruct: UStructHandle, data: *mut u8) -> UikaErrorCode,
-}
-
-// ---------------------------------------------------------------------------
-// Placeholder sub-tables (filled in later phases)
-// ---------------------------------------------------------------------------
-
-/// Placeholder for WASM memory operations.
-///
-/// Reserved for future use when the WASM embedding path needs to expose
-/// guest memory management (e.g. shared memory, memory growth notifications)
-/// to the C++ host. Currently unused — the `memory` field in `UikaApiTable`
-/// is set to `nullptr` on the C++ side.
-#[repr(C)]
-pub struct UikaMemoryApi {
-    _opaque: u8,
 }
 
 /// Phase 7: Container operations (TArray / TMap / TSet).

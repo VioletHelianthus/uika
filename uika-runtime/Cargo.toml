@@ -12,4 +12,4 @@ glam = "0.29"
 inventory = "0.3"
 
 [build-dependencies]
-uika-api-parse = { path = "../uika-api-parse" }
+syn = { version = "2", features = ["full"] }

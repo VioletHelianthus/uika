@@ -76,7 +76,6 @@ static void FillApiTable()
     GApiTable.core       = &GCoreApi;
     GApiTable.property   = &GPropertyApi;
     GApiTable.reflection = &GReflectionApi;
-    GApiTable.memory       = nullptr;
     GApiTable.container    = &GContainerApi;
     GApiTable.delegate     = &GDelegateApi;
     GApiTable.lifecycle    = &GLifecycleApi;
@@ -99,21 +98,10 @@ static FAutoConsoleCommand CmdReload(
     TEXT("Hot-reload the Rust DLL (unload → copy → load)."),
     FConsoleCommandDelegate::CreateStatic(&FUikaModule::StaticReload));
 
-static FAutoConsoleCommand CmdReloadWasm(
-    TEXT("Uika.ReloadWasm"),
-    TEXT("Hot-reload WASM module without DLL swap."),
-    FConsoleCommandDelegate::CreateStatic(&FUikaModule::StaticReloadWasm));
-
 void FUikaModule::StaticReload()
 {
     FUikaModule& Module = FModuleManager::GetModuleChecked<FUikaModule>(TEXT("Uika"));
     Module.ReloadRustDll();
-}
-
-void FUikaModule::StaticReloadWasm()
-{
-    FUikaModule& Module = FModuleManager::GetModuleChecked<FUikaModule>(TEXT("Uika"));
-    Module.ReloadWasm();
 }
 
 // ---------------------------------------------------------------------------
@@ -256,7 +244,7 @@ void FUikaModule::UnloadRustDll()
 }
 
 // ---------------------------------------------------------------------------
-// Reified instance teardown / reconstruct helpers (shared by DLL and WASM reload)
+// Reified instance teardown / reconstruct helpers
 // ---------------------------------------------------------------------------
 
 void FUikaModule::TeardownReifiedInstances()
@@ -360,48 +348,6 @@ void FUikaModule::ReloadRustDll()
     ReconstructReifiedInstances();
 
     UE_LOG(LogUika, Display, TEXT("[Uika] === Hot Reload Complete ==="));
-}
-
-// ---------------------------------------------------------------------------
-// WASM hot reload (no DLL swap)
-// ---------------------------------------------------------------------------
-
-void FUikaModule::ReloadWasm()
-{
-    UE_LOG(LogUika, Display, TEXT("[Uika] === WASM Hot Reload Begin ==="));
-
-    if (!DllHandle)
-    {
-        UE_LOG(LogUika, Error, TEXT("[Uika] WASM reload failed: no DLL loaded"));
-        return;
-    }
-
-    // Phase 1: Teardown — drop all Rust instances
-    TeardownReifiedInstances();
-
-    // Phase 2: Call uika_reload_wasm — Rust side shutdown + re-read game.wasm + re-init
-    using FUikaReloadWasmFn = bool(*)();
-    auto ReloadWasmFn = reinterpret_cast<FUikaReloadWasmFn>(
-        FPlatformProcess::GetDllExport(DllHandle, TEXT("uika_reload_wasm")));
-    if (!ReloadWasmFn)
-    {
-        UE_LOG(LogUika, Error,
-            TEXT("[Uika] WASM reload failed: uika_reload_wasm export not found (wasm-host feature not enabled?)"));
-        return;
-    }
-
-    bool bSuccess = ReloadWasmFn();
-    if (!bSuccess)
-    {
-        UE_LOG(LogUika, Error,
-            TEXT("[Uika] WASM reload failed: uika_reload_wasm returned false"));
-        return;
-    }
-
-    // Phase 3: Reconstruct — rebuild Rust instance data
-    ReconstructReifiedInstances();
-
-    UE_LOG(LogUika, Display, TEXT("[Uika] === WASM Hot Reload Complete ==="));
 }
 
 #undef LOCTEXT_NAMESPACE

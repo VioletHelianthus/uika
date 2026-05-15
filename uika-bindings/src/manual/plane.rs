@@ -13,10 +13,7 @@ pub trait OwnedFPlaneExt {
 /// Reinterpret a FPlane struct ref as a FVector struct ref to access inherited X/Y/Z.
 #[inline]
 unsafe fn plane_as_vector(plane: &uika_runtime::UStructRef<FPlane>) -> uika_runtime::UStructRef<FVector> {
-    #[cfg(not(target_arch = "wasm32"))]
-    { uika_runtime::UStructRef::<FVector>::from_raw(plane.as_ptr().0 as *mut u8) }
-    #[cfg(target_arch = "wasm32")]
-    { uika_runtime::UStructRef::<FVector>::from_native_ptr(plane.as_ptr().0) }
+    unsafe { uika_runtime::UStructRef::<FVector>::from_raw(plane.as_ptr().0 as *mut u8) }
 }
 
 impl OwnedFPlaneExt for OwnedStruct<FPlane> {

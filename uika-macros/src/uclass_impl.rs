@@ -124,7 +124,7 @@ pub fn expand_uclass_impl(_attr: TokenStream, item: TokenStream) -> syn::Result<
             });
         }
 
-        // Generate param reads from the params buffer (via native_mem_read for wasm32 compat)
+        // Generate param reads from the params buffer (via native_mem_read).
         let mut param_reads: Vec<TokenStream> = Vec::new();
         let mut param_idents: Vec<&Ident> = Vec::new();
         for (i, param) in uf.params.iter().enumerate() {

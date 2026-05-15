@@ -9,7 +9,7 @@ use crate::schema::*;
 use crate::type_map::{self, ConversionKind, MappedType, ParamDirection};
 
 use super::delegates;
-use super::param_helpers::{self, Platform};
+use super::param_helpers;
 use super::properties::{self, PropertyContext};
 
 /// Generate Rust code for a single UE class.
@@ -400,8 +400,8 @@ fn generate_scalar_function(out: &mut String, entry: &FuncEntry, class_name: &st
         out.push_str(&format!("        let {pname} = {pname}.unwrap_or({default_expr});\n"));
     }
 
-    // --- Native path (func_table transmute) ---
-    out.push_str("        #[cfg(not(target_arch = \"wasm32\"))]\n        {\n");
+    // FFI dispatch: load wrapper pointer from func_table and transmute to typed fn.
+    out.push_str("        {\n");
 
     // Build FFI fn type signature
     let mut ffi_params = String::new();
@@ -500,7 +500,7 @@ fn generate_scalar_function(out: &mut String, entry: &FuncEntry, class_name: &st
 
     for (param, dir, mapped) in &all_mapped {
         if *dir == ParamDirection::Out {
-            param_helpers::emit_out_param_var_decl(out, param, mapped, Platform::Native);
+            param_helpers::emit_out_param_var_decl(out, param, mapped);
         }
         if *dir == ParamDirection::InOut {
             param_helpers::emit_inout_string_buf_decl(out, param, mapped);
@@ -627,24 +627,14 @@ fn generate_scalar_function(out: &mut String, entry: &FuncEntry, class_name: &st
                 continue;
             }
             return_parts.push(param_helpers::emit_out_param_conversion(
-                out, param, mapped, Platform::Native, ctx,
+                out, param, mapped, ctx,
             ));
         }
 
         param_helpers::emit_return_expr(out, &return_parts);
     }
 
-    out.push_str("        }\n"); // close native cfg block
-
-    // --- WASM path (extern import call) ---
-    out.push_str("        #[cfg(target_arch = \"wasm32\")]\n        {\n");
-    if super::wasm_gen::wasm_func_within_param_limit(entry, ctx) {
-        super::wasm_gen::generate_wasm_scalar_body(out, entry, ctx);
-    } else {
-        out.push_str("        unimplemented!(\"WASM: function has too many params for func_wrap\");\n");
-    }
-    out.push_str("        }\n"); // close wasm32 cfg block
-
+    out.push_str("        }\n");
     out.push_str("    }\n\n");
 }
 
@@ -841,8 +831,7 @@ fn generate_container_function(out: &mut String, entry: &FuncEntry, class_name: 
         out.push_str(&format!("        let {pname} = {pname}.unwrap_or({default_expr});\n"));
     }
 
-    // --- Native path (func_table transmute) ---
-    out.push_str("        #[cfg(not(target_arch = \"wasm32\"))]\n        {\n");
+    out.push_str("        {\n");
 
     // === OnceLock for container FPropertyHandles ===
     let ue_name_len = ue_name.len();
@@ -976,7 +965,7 @@ fn generate_container_function(out: &mut String, entry: &FuncEntry, class_name: 
         let dir = type_map::param_direction(param);
         if dir == ParamDirection::Out && !is_container_param(param) {
             let mapped = map_param(param);
-            param_helpers::emit_out_param_var_decl(out, param, &mapped, Platform::Native);
+            param_helpers::emit_out_param_var_decl(out, param, &mapped);
         }
         if dir == ParamDirection::InOut && !is_container_param(param) {
             let mapped = map_param(param);
@@ -1089,17 +1078,7 @@ fn generate_container_function(out: &mut String, entry: &FuncEntry, class_name: 
     // === Return ===
     emit_container_return(out, return_param, ret_mapped, &container_params, &func.params, ctx);
 
-    out.push_str("        }\n"); // close native cfg block
-
-    // --- WASM path (extern import call) ---
-    out.push_str("        #[cfg(target_arch = \"wasm32\")]\n        {\n");
-    if super::wasm_gen::wasm_func_within_param_limit(entry, ctx) {
-        super::wasm_gen::generate_wasm_container_body(out, entry, class_name, ctx);
-    } else {
-        out.push_str("        unimplemented!(\"WASM: function has too many params for func_wrap\");\n");
-    }
-    out.push_str("        }\n"); // close wasm32 cfg block
-
+    out.push_str("        }\n");
     out.push_str("    }\n\n");
 }
 
@@ -1269,7 +1248,7 @@ fn emit_container_return(
                 continue;
             }
             return_parts.push(param_helpers::emit_out_param_conversion(
-                out, param, &mapped, Platform::Native, ctx,
+                out, param, &mapped, ctx,
             ));
         }
     }

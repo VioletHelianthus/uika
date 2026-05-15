@@ -1,8 +1,7 @@
-#[cfg(not(target_arch = "wasm32"))]
 use std::ffi::c_void;
 
 // ---------------------------------------------------------------------------
-// Macro: define a pointer-based handle with cfg gate (native: *mut c_void, wasm32: u64)
+// Macro: define a pointer-based handle (opaque C++ side identifier).
 // ---------------------------------------------------------------------------
 
 macro_rules! define_ptr_handle {
@@ -10,40 +9,25 @@ macro_rules! define_ptr_handle {
         $(#[$meta])*
         #[repr(transparent)]
         #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-        pub struct $name(
-            #[cfg(not(target_arch = "wasm32"))] pub *mut c_void,
-            #[cfg(target_arch = "wasm32")]      pub u64,
-        );
+        pub struct $name(pub *mut c_void);
 
         impl $name {
             pub fn is_null(&self) -> bool {
-                #[cfg(not(target_arch = "wasm32"))]
-                { self.0.is_null() }
-                #[cfg(target_arch = "wasm32")]
-                { self.0 == 0 }
+                self.0.is_null()
             }
 
             pub fn null() -> Self {
-                #[cfg(not(target_arch = "wasm32"))]
-                { Self(std::ptr::null_mut()) }
-                #[cfg(target_arch = "wasm32")]
-                { Self(0) }
+                Self(std::ptr::null_mut())
             }
 
             /// Create from a raw u64 address (platform-agnostic byte-level construction).
             pub fn from_addr(addr: u64) -> Self {
-                #[cfg(not(target_arch = "wasm32"))]
-                { Self(addr as usize as *mut c_void) }
-                #[cfg(target_arch = "wasm32")]
-                { Self(addr) }
+                Self(addr as usize as *mut c_void)
             }
 
             /// Convert to a raw u64 address (platform-agnostic byte-level extraction).
             pub fn to_addr(&self) -> u64 {
-                #[cfg(not(target_arch = "wasm32"))]
-                { self.0 as usize as u64 }
-                #[cfg(target_arch = "wasm32")]
-                { self.0 }
+                self.0 as usize as u64
             }
         }
     };

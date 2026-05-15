@@ -1,4 +1,4 @@
-// Shared parameter handling helpers for native (classes.rs) and WASM (wasm_gen.rs) codegen.
+// Shared parameter handling helpers for native codegen (classes.rs).
 //
 // Extracts duplicated logic for output variable declarations, return value
 // conversion, and return expression formatting.
@@ -11,24 +11,12 @@ use crate::type_map::{ConversionKind, MappedType};
 use super::classes::is_struct_owned;
 use super::properties;
 
-/// Target platform for code generation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Platform {
-    Native,
-    Wasm32,
-}
-
 // ---------------------------------------------------------------------------
 // Output variable declarations
 // ---------------------------------------------------------------------------
 
 /// Emit `let mut` declarations for a scalar Out parameter.
-pub fn emit_out_param_var_decl(
-    out: &mut String,
-    param: &ParamInfo,
-    mapped: &MappedType,
-    platform: Platform,
-) {
+pub fn emit_out_param_var_decl(out: &mut String, param: &ParamInfo, mapped: &MappedType) {
     let pname = escape_reserved(&to_snake_case(&param.name));
     match mapped.ffi_to_rust {
         ConversionKind::StructOpaque => {
@@ -39,16 +27,9 @@ pub fn emit_out_param_var_decl(
             out.push_str(&format!("        let mut {pname}_len: u32 = 0;\n"));
         }
         ConversionKind::ObjectRef => {
-            match platform {
-                Platform::Native => {
-                    out.push_str(&format!(
-                        "        let mut {pname} = uika_runtime::UObjectHandle::null();\n"
-                    ));
-                }
-                Platform::Wasm32 => {
-                    out.push_str(&format!("        let mut {pname}: u64 = 0;\n"));
-                }
-            }
+            out.push_str(&format!(
+                "        let mut {pname} = uika_runtime::UObjectHandle::null();\n"
+            ));
         }
         ConversionKind::EnumCast => {
             out.push_str(&format!("        let mut {pname}: {} = 0;\n", mapped.rust_ffi_type));
@@ -79,23 +60,12 @@ pub fn emit_out_param_conversion(
     out: &mut String,
     param: &ParamInfo,
     mapped: &MappedType,
-    platform: Platform,
     ctx: &CodegenContext,
 ) -> String {
     let pname = escape_reserved(&to_snake_case(&param.name));
     match mapped.ffi_to_rust {
         ConversionKind::ObjectRef => {
-            match platform {
-                Platform::Native => {
-                    format!("unsafe {{ uika_runtime::UObjectRef::from_raw({pname}) }}")
-                }
-                Platform::Wasm32 => {
-                    out.push_str(&format!(
-                        "        let {pname}_handle = uika_runtime::UObjectHandle({pname});\n"
-                    ));
-                    format!("unsafe {{ uika_runtime::UObjectRef::from_raw({pname}_handle) }}")
-                }
-            }
+            format!("unsafe {{ uika_runtime::UObjectRef::from_raw({pname}) }}")
         }
         ConversionKind::StringUtf8 => {
             out.push_str(&format!("        {pname}_buf.truncate({pname}_len as usize);\n"));

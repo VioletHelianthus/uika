@@ -75,7 +75,7 @@ use crate::ffi_dispatch::NativePtr;
 // Uses Arc so we can clone the reference out of the registry and release
 // the lock before invoking the callback (prevents deadlock if the callback
 // makes FFI calls that re-enter Rust).
-// `params` is NativePtr: `*mut u8` on native, `u64` on wasm32.
+// `params` is an opaque FFI buffer pointer (`NativePtr` = `*mut u8`).
 type ReifyFunctionCallback = Arc<dyn Fn(UObjectHandle, *mut u8, NativePtr) + Send + Sync>;
 
 // ---------------------------------------------------------------------------

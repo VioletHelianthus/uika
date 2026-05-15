@@ -28,7 +28,7 @@ pub struct BuildConfig {
     /// When set, `cargo build` uses `--manifest-path` instead of `-p`, allowing
     /// the game crate to live outside the uika workspace.
     pub crate_path: Option<String>,
-    /// Extra features to pass to `cargo build` (e.g. `["wasm-host"]`).
+    /// Extra features to pass to `cargo build`.
     #[serde(default)]
     pub features: Vec<String>,
 }
