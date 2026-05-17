@@ -175,7 +175,6 @@ struct FUikaReflectionApi
 // Placeholder sub-tables (filled in later phases)
 // ---------------------------------------------------------------------------
 
-struct FUikaMemoryApi       { uint8 _opaque; };
 struct FUikaContainerApi
 {
     // -- TArray --
@@ -364,7 +363,6 @@ struct FUikaApiTable
     const FUikaCoreApi*         core;
     const FUikaPropertyApi*     property;
     const FUikaReflectionApi*   reflection;
-    const FUikaMemoryApi*       memory;
     const FUikaContainerApi*    container;
     const FUikaDelegateApi*     delegate;
     const FUikaLifecycleApi*    lifecycle;
