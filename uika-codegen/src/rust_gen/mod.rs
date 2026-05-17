@@ -8,6 +8,7 @@ pub mod delegates;
 pub mod module;
 pub mod func_ids;
 pub mod param_helpers;
+pub mod cargo_toml;
 
 use std::path::Path;
 

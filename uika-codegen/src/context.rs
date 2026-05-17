@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::config::CodegenConfig;
-use crate::schema::{ClassInfo, EnumInfo, FunctionInfo, StructInfo};
+use crate::schema::{ClassInfo, EnumInfo, FunctionInfo, PropertyInfo, StructInfo};
 
 /// Central build context for the codegen pipeline.
 pub struct CodegenContext {
@@ -30,6 +30,10 @@ pub struct CodegenContext {
 
     /// All exportable functions sorted by (module, class, func) for FuncId assignment.
     pub func_table: Vec<FuncEntry>,
+
+    /// Module name → set of other modules whose types it references.
+    /// Drives feature dependency emission in the generated `uika-bindings/Cargo.toml`.
+    pub module_deps: BTreeMap<String, std::collections::BTreeSet<String>>,
 }
 
 /// An entry in the global function table.
@@ -140,7 +144,7 @@ impl CodegenContext {
             enums.sort_by(|a, b| a.name.cmp(&b.name));
         }
 
-        CodegenContext {
+        let mut ctx = CodegenContext {
             classes: classes_map,
             structs: structs_map,
             enums: enums_map,
@@ -151,6 +155,204 @@ impl CodegenContext {
             module_structs,
             module_enums,
             func_table: Vec::new(),
+            module_deps: BTreeMap::new(),
+        };
+        ctx.module_deps = ctx.compute_module_deps();
+        ctx
+    }
+
+    /// Walk all enabled types and record cross-module type references.
+    ///
+    /// For each (module M, type T in M), if T references a type owned by
+    /// another module M', record `M depends on M'`. The resulting graph
+    /// drives feature dependency emission in `uika-bindings/Cargo.toml`,
+    /// ensuring `cargo check` succeeds at any enabled feature combination.
+    fn compute_module_deps(&self) -> BTreeMap<String, std::collections::BTreeSet<String>> {
+        let mut deps: BTreeMap<String, std::collections::BTreeSet<String>> = BTreeMap::new();
+        for m in &self.enabled_modules {
+            deps.entry(m.clone()).or_default();
+        }
+
+        for (module, classes) in &self.module_classes {
+            for class in classes {
+                if let Some(parent) = &class.super_class {
+                    if let Some(pc) = self.classes.get(parent.as_str()) {
+                        self.record_dep(module, &pc.package, &mut deps);
+                    }
+                }
+                for iface in &class.interfaces {
+                    if let Some(ic) = self.classes.get(iface.as_str()) {
+                        self.record_dep(module, &ic.package, &mut deps);
+                    }
+                }
+                for prop in &class.props {
+                    self.walk_prop_deps(prop, module, &mut deps);
+                }
+                for func in &class.funcs {
+                    for p in &func.params {
+                        self.walk_param_deps(p, module, &mut deps);
+                    }
+                }
+            }
+        }
+
+        for (module, structs) in &self.module_structs {
+            for s in structs {
+                if let Some(parent) = &s.super_struct {
+                    if let Some(ps) = self.structs.get(parent.as_str()) {
+                        self.record_dep(module, &ps.package, &mut deps);
+                    }
+                }
+                for prop in &s.props {
+                    self.walk_prop_deps(prop, module, &mut deps);
+                }
+            }
+        }
+
+        deps
+    }
+
+    fn record_dep(
+        &self,
+        current_module: &str,
+        target_package: &str,
+        deps: &mut BTreeMap<String, std::collections::BTreeSet<String>>,
+    ) {
+        if let Some(target_module) = self.package_to_module.get(target_package) {
+            if target_module != current_module && self.enabled_modules.contains(target_module) {
+                deps.entry(current_module.to_string())
+                    .or_default()
+                    .insert(target_module.clone());
+            }
+        }
+    }
+
+    fn walk_prop_deps(
+        &self,
+        prop: &PropertyInfo,
+        current_module: &str,
+        deps: &mut BTreeMap<String, std::collections::BTreeSet<String>>,
+    ) {
+        if let Some(en) = &prop.enum_name {
+            if let Some(e) = self.enums.get(en.as_str()) {
+                self.record_dep(current_module, &e.package, deps);
+            }
+        }
+        if let Some(cn) = &prop.class_name {
+            if let Some(c) = self.classes.get(cn.as_str()) {
+                self.record_dep(current_module, &c.package, deps);
+            }
+        }
+        if let Some(mc) = &prop.meta_class_name {
+            if let Some(c) = self.classes.get(mc.as_str()) {
+                self.record_dep(current_module, &c.package, deps);
+            }
+        }
+        if let Some(sn) = &prop.struct_name {
+            if let Some(s) = self.structs.get(sn.as_str()) {
+                self.record_dep(current_module, &s.package, deps);
+            }
+        }
+        if let Some(in_) = &prop.interface_name {
+            if let Some(c) = self.classes.get(in_.as_str()) {
+                self.record_dep(current_module, &c.package, deps);
+            }
+        }
+        if let Some(fi) = &prop.func_info {
+            self.walk_delegate_func_info_deps(fi, current_module, deps);
+        }
+        if let Some(inner) = &prop.inner_prop {
+            self.walk_prop_deps(inner, current_module, deps);
+        }
+        if let Some(key) = &prop.key_prop {
+            self.walk_prop_deps(key, current_module, deps);
+        }
+        if let Some(value) = &prop.value_prop {
+            self.walk_prop_deps(value, current_module, deps);
+        }
+        if let Some(element) = &prop.element_prop {
+            self.walk_prop_deps(element, current_module, deps);
+        }
+    }
+
+    fn walk_param_deps(
+        &self,
+        param: &crate::schema::ParamInfo,
+        current_module: &str,
+        deps: &mut BTreeMap<String, std::collections::BTreeSet<String>>,
+    ) {
+        if let Some(en) = &param.enum_name {
+            if let Some(e) = self.enums.get(en.as_str()) {
+                self.record_dep(current_module, &e.package, deps);
+            }
+        }
+        if let Some(cn) = &param.class_name {
+            if let Some(c) = self.classes.get(cn.as_str()) {
+                self.record_dep(current_module, &c.package, deps);
+            }
+        }
+        if let Some(mc) = &param.meta_class_name {
+            if let Some(c) = self.classes.get(mc.as_str()) {
+                self.record_dep(current_module, &c.package, deps);
+            }
+        }
+        if let Some(sn) = &param.struct_name {
+            if let Some(s) = self.structs.get(sn.as_str()) {
+                self.record_dep(current_module, &s.package, deps);
+            }
+        }
+        if let Some(in_) = &param.interface_name {
+            if let Some(c) = self.classes.get(in_.as_str()) {
+                self.record_dep(current_module, &c.package, deps);
+            }
+        }
+        if let Some(inner) = &param.inner_prop {
+            self.walk_prop_deps(inner, current_module, deps);
+        }
+        if let Some(key) = &param.key_prop {
+            self.walk_prop_deps(key, current_module, deps);
+        }
+        if let Some(value) = &param.value_prop {
+            self.walk_prop_deps(value, current_module, deps);
+        }
+        if let Some(element) = &param.element_prop {
+            self.walk_prop_deps(element, current_module, deps);
+        }
+    }
+
+    fn walk_delegate_func_info_deps(
+        &self,
+        fi: &serde_json::Value,
+        current_module: &str,
+        deps: &mut BTreeMap<String, std::collections::BTreeSet<String>>,
+    ) {
+        let Some(params) = fi.get("params").and_then(|p| p.as_array()) else { return };
+        for p in params {
+            if let Some(en) = p.get("enum_name").and_then(|v| v.as_str()) {
+                if let Some(e) = self.enums.get(en) {
+                    self.record_dep(current_module, &e.package, deps);
+                }
+            }
+            if let Some(cn) = p.get("class_name").and_then(|v| v.as_str()) {
+                if let Some(c) = self.classes.get(cn) {
+                    self.record_dep(current_module, &c.package, deps);
+                }
+            }
+            if let Some(mc) = p.get("meta_class_name").and_then(|v| v.as_str()) {
+                if let Some(c) = self.classes.get(mc) {
+                    self.record_dep(current_module, &c.package, deps);
+                }
+            }
+            if let Some(sn) = p.get("struct_name").and_then(|v| v.as_str()) {
+                if let Some(s) = self.structs.get(sn) {
+                    self.record_dep(current_module, &s.package, deps);
+                }
+            }
+            if let Some(in_) = p.get("interface_name").and_then(|v| v.as_str()) {
+                if let Some(c) = self.classes.get(in_) {
+                    self.record_dep(current_module, &c.package, deps);
+                }
+            }
         }
     }
 

@@ -105,6 +105,21 @@ pub fn run_generate(config_path: &Path) {
     eprintln!("uika-codegen: generating Rust code...");
     rust_gen::generate(&ctx, &rust_out);
 
+    // Rewrite uika-bindings/Cargo.toml [features] from the dep graph.
+    // Sits next to the rust_out src/ directory.
+    let cargo_toml_path = rust_out
+        .parent()
+        .map(|p| p.join("Cargo.toml"))
+        .unwrap_or_else(|| rust_out.join("Cargo.toml"));
+    if cargo_toml_path.exists() {
+        rust_gen::cargo_toml::write_features_section(&cargo_toml_path, &ctx, codegen);
+    } else {
+        eprintln!(
+            "  warning: {} not found, skipping [features] regen",
+            cargo_toml_path.display()
+        );
+    }
+
     // Generate C++ code
     eprintln!("uika-codegen: generating C++ code...");
     cpp_gen::generate(&ctx, &cpp_out);
