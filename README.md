@@ -1,3 +1,5 @@
+> ⚠️ **Maintenance Notice:** Due to my exceptionally long working hours, I no longer have the capacity to continue developing Uika. It is therefore highly unlikely that Uika will receive any further maintenance. Furthermore, with Verse expected to arrive in Unreal Engine 6, it will likely be a more suitable programming language for Unreal Engine development than Rust.
+
 # Uika
 
 **Rust bindings for Unreal Engine 5.7+**
